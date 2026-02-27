@@ -1,0 +1,25 @@
+{
+  "name": "Google Drive Connector",
+  "slug": "google-drive-connector",
+  "version": "1.0.0",
+  "type": "connector",
+  "description": "Connect your Google Drive to import documents directly into Ask DIANA. Browse, select, and sync files seamlessly.",
+  "short_description": "Import documents from Google Drive into Ask DIANA",
+  "permissions": [
+    "documents:read",
+    "documents:write",
+    "user:profile"
+  ],
+  "webhooks": {
+    "on_install": "https://<your-extension-url>/webhooks/install",
+    "on_uninstall": "https://<your-extension-url>/webhooks/uninstall",
+    "on_event": "https://<your-extension-url>/webhooks/events"
+  },
+  "capabilities": {
+    "list_files": "https://<your-extension-url>/api/files",
+    "sync": "https://<your-extension-url>/api/sync"
+  },
+  "pricing": {
+    "model": "free"
+  }
+}
