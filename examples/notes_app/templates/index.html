@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notes</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8f9fa;
+      color: #1a1a2e;
+      padding: 16px;
+      font-size: 14px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .btn:hover { background: #f0f0f0; }
+    .btn-primary { background: #1a1a2e; color: #fff; border-color: #1a1a2e; }
+    .btn-primary:hover { background: #2a2a4e; }
+    .btn-danger { color: #dc3545; }
+    .btn-danger:hover { background: #fff0f0; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    /* Create form */
+    .create-form {
+      display: none;
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .create-form.active { display: block; }
+    .create-form input,
+    .create-form textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 10px;
+      font-family: inherit;
+    }
+    .create-form textarea { min-height: 80px; resize: vertical; }
+    .form-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    /* Notes list */
+    .notes-list { display: flex; flex-direction: column; gap: 8px; }
+    .note-card {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 14px 16px;
+      transition: box-shadow 0.15s;
+    }
+    .note-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .note-card.pinned { border-left: 3px solid #fbbf24; }
+    .note-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .note-title { font-weight: 600; font-size: 14px; }
+    .note-content {
+      color: #666;
+      font-size: 13px;
+      white-space: pre-wrap;
+      margin-bottom: 8px;
+    }
+    .note-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .note-date { font-size: 11px; color: #999; }
+    .note-actions { display: flex; gap: 4px; }
+
+    .pin-badge {
+      font-size: 11px;
+      background: #fef3c7;
+      color: #92400e;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px 16px;
+      color: #999;
+    }
+    .empty-state svg { margin-bottom: 12px; }
+
+    /* Edit mode */
+    .edit-input {
+      width: 100%;
+      padding: 6px 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 6px;
+      font-family: inherit;
+    }
+    .edit-textarea { min-height: 60px; resize: vertical; }
+
+    .loading { text-align: center; padding: 32px; color: #999; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Notes</h1>
+    <button class="btn btn-primary" onclick="toggleCreateForm()">+ New Note</button>
+  </div>
+
+  <div class="create-form" id="createForm">
+    <input type="text" id="newTitle" placeholder="Note title..." />
+    <textarea id="newContent" placeholder="Note content..."></textarea>
+    <div class="form-actions">
+      <button class="btn" onclick="toggleCreateForm()">Cancel</button>
+      <button class="btn btn-primary" onclick="createNote()">Create</button>
+    </div>
+  </div>
+
+  <div id="notesList" class="notes-list">
+    <div class="loading">Loading notes...</div>
+  </div>
+
+  <script>
+    // Get install_id from URL params or parent window
+    const params = new URLSearchParams(window.location.search);
+    let INSTALL_ID = params.get("install_id") || "";
+    const BASE = window.location.origin;
+
+    let notes = [];
+    let editingId = null;
+
+    async function fetchNotes() {
+      try {
+        const res = await fetch(`${BASE}/api/notes?install_id=${INSTALL_ID}`);
+        const data = await res.json();
+        if (data.success) {
+          notes = data.notes || [];
+          render();
+        }
+      } catch (err) {
+        document.getElementById("notesList").innerHTML =
+          '<div class="empty-state">Failed to load notes</div>';
+      }
+    }
+
+    function render() {
+      const container = document.getElementById("notesList");
+      if (notes.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <svg width="48" height="48" fill="none" stroke="#ccc" stroke-width="1.5" viewBox="0 0 24 24">
+              <path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/>
+            </svg>
+            <p>No notes yet. Create your first note!</p>
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = notes.map(note => {
+        if (editingId === note.id) {
+          return `
+            <div class="note-card">
+              <input class="edit-input" id="editTitle" value="${escapeHtml(note.title)}" />
+              <textarea class="edit-input edit-textarea" id="editContent">${escapeHtml(note.content || "")}</textarea>
+              <div class="form-actions">
+                <button class="btn btn-sm" onclick="cancelEdit()">Cancel</button>
+                <button class="btn btn-sm btn-primary" onclick="saveEdit('${note.id}')">Save</button>
+              </div>
+            </div>`;
+        }
+
+        return `
+          <div class="note-card ${note.pinned ? "pinned" : ""}">
+            <div class="note-header">
+              <span class="note-title">${escapeHtml(note.title)}</span>
+              ${note.pinned ? '<span class="pin-badge">Pinned</span>' : ""}
+            </div>
+            ${note.content ? `<div class="note-content">${escapeHtml(note.content)}</div>` : ""}
+            <div class="note-meta">
+              <span class="note-date">${formatDate(note.created_at)}</span>
+              <div class="note-actions">
+                <button class="btn btn-sm" onclick="togglePin('${note.id}', ${!note.pinned})">
+                  ${note.pinned ? "Unpin" : "Pin"}
+                </button>
+                <button class="btn btn-sm" onclick="startEdit('${note.id}')">Edit</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteNote('${note.id}')">Delete</button>
+              </div>
+            </div>
+          </div>`;
+      }).join("");
+    }
+
+    function toggleCreateForm() {
+      const form = document.getElementById("createForm");
+      form.classList.toggle("active");
+      if (form.classList.contains("active")) {
+        document.getElementById("newTitle").focus();
+      }
+    }
+
+    async function createNote() {
+      const title = document.getElementById("newTitle").value.trim();
+      const content = document.getElementById("newContent").value.trim();
+      if (!title) return;
+
+      const res = await fetch(`${BASE}/api/notes?install_id=${INSTALL_ID}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, content }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        document.getElementById("newTitle").value = "";
+        document.getElementById("newContent").value = "";
+        toggleCreateForm();
+        fetchNotes();
+      }
+    }
+
+    async function deleteNote(id) {
+      if (!confirm("Delete this note?")) return;
+      await fetch(`${BASE}/api/notes/${id}?install_id=${INSTALL_ID}`, {
+        method: "DELETE",
+      });
+      fetchNotes();
+    }
+
+    async function togglePin(id, pinned) {
+      await fetch(`${BASE}/api/notes/${id}?install_id=${INSTALL_ID}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned }),
+      });
+      fetchNotes();
+    }
+
+    function startEdit(id) {
+      editingId = id;
+      render();
+    }
+
+    function cancelEdit() {
+      editingId = null;
+      render();
+    }
+
+    async function saveEdit(id) {
+      const title = document.getElementById("editTitle").value.trim();
+      const content = document.getElementById("editContent").value.trim();
+      if (!title) return;
+
+      await fetch(`${BASE}/api/notes/${id}?install_id=${INSTALL_ID}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, content }),
+      });
+      editingId = null;
+      fetchNotes();
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function formatDate(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      return d.toLocaleDateString(undefined, {
+        month: "short", day: "numeric", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      });
+    }
+
+    // Init
+    fetchNotes();
+  </script>
+</body>
+</html>

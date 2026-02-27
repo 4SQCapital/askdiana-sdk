@@ -37,6 +37,15 @@ def on_uninstall():
     return jsonify({"ok": True}), 200
 
 
+@app.flask.route("/ui")
+def extension_ui():
+    from flask import send_from_directory
+    return send_from_directory(
+        os.path.join(os.path.dirname(__file__), "templates"),
+        "index.html",
+    )
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(port=port, debug=False)
