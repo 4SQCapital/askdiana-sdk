@@ -1,10 +1,10 @@
 {
-  "name": "notes_app",
-  "slug": "notes_app",
+  "name": "Notes App",
+  "slug": "notes-app",
   "version": "1.0.0",
-  "type": "tool",
-  "description": "TODO: describe your extension",
-  "short_description": "TODO: short description",
+  "type": "workflow",
+  "description": "A simple notes extension for Ask DIANA. Create, edit, pin, and delete notes that persist via the Data Storage API.",
+  "short_description": "Create and manage personal notes",
   "permissions": [],
   "webhooks": {
     "on_install": "https://<your-url>/webhooks/install",
@@ -12,5 +12,10 @@
   },
   "pricing": {
     "model": "free"
+  },
+  "ui": {
+    "type": "iframe",
+    "url": "http://localhost:5000/ui",
+    "height": "600px"
   }
 }
