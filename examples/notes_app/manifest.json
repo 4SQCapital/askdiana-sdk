@@ -1,0 +1,16 @@
+{
+  "name": "notes_app",
+  "slug": "notes_app",
+  "version": "1.0.0",
+  "type": "tool",
+  "description": "TODO: describe your extension",
+  "short_description": "TODO: short description",
+  "permissions": [],
+  "webhooks": {
+    "on_install": "https://<your-url>/webhooks/install",
+    "on_uninstall": "https://<your-url>/webhooks/uninstall"
+  },
+  "pricing": {
+    "model": "free"
+  }
+}
