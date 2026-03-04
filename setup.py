@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="askdiana",
-    version="0.3.0",
+    version="0.4.0",
     packages=find_packages(),
     install_requires=["requests>=2.20.0", "python-dotenv>=0.19.0"],
     extras_require={

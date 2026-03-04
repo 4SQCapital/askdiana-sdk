@@ -14,10 +14,16 @@ Usage::
     docs = client.list_documents(install_id="...")
     for doc in docs["documents"]:
         print(doc["file_name"])
+
+    # Search documents
+    results = client.search_documents(install_id="...", query="quarterly report")
+
+    # Get user config
+    config = client.get_config(install_id="...", key="google_api_key")
 """
 
 import requests
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 
 class AskDianaClient:
@@ -200,6 +206,207 @@ class AskDianaClient:
         )
         response.raise_for_status()
         return response.json()
+
+    def search_documents(
+        self,
+        install_id: str,
+        query: str,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        """Search documents by content query.
+
+        Requires scope: ``documents:read``
+
+        Args:
+            install_id: Install UUID from webhook payload.
+            query: Search query string.
+            limit: Maximum number of results.
+
+        Returns::
+
+            {
+                "success": true,
+                "results": [
+                    {"id": "...", "file_name": "...", "score": 0.95,
+                     "snippet": "...matching text..."}
+                ]
+            }
+        """
+        return self._request(
+            "POST", "/documents/search", install_id,
+            json_body={"query": query, "limit": limit},
+        )
+
+    def get_document(
+        self,
+        install_id: str,
+        document_id: str,
+    ) -> Dict[str, Any]:
+        """Get a single document by ID.
+
+        Requires scope: ``documents:read``
+
+        Args:
+            install_id: Install UUID from webhook payload.
+            document_id: The document UUID.
+
+        Returns::
+
+            {
+                "success": true,
+                "document": {"id": "...", "file_name": "...", ...}
+            }
+        """
+        return self._request("GET", f"/documents/{document_id}", install_id)
+
+    def delete_document(
+        self,
+        install_id: str,
+        document_id: str,
+    ) -> Dict[str, Any]:
+        """Delete a document.
+
+        Requires scope: ``documents:write``
+
+        Args:
+            install_id: Install UUID from webhook payload.
+            document_id: The document UUID to delete.
+
+        Returns::
+
+            {"success": true, "message": "Document deleted"}
+        """
+        return self._request("DELETE", f"/documents/{document_id}", install_id)
+
+    # ------------------------------------------------------------------ #
+    # Chats (extended)                                                      #
+    # ------------------------------------------------------------------ #
+
+    def create_chat(
+        self,
+        install_id: str,
+        title: Optional[str] = None,
+        message: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a new chat, optionally with an initial message.
+
+        Requires scope: ``chats:write``
+
+        Args:
+            install_id: Install UUID from webhook payload.
+            title: Optional chat title.
+            message: Optional initial message to send.
+
+        Returns::
+
+            {
+                "success": true,
+                "chat": {"id": "...", "title": "...", "created_at": "..."}
+            }
+        """
+        body: Dict[str, Any] = {}
+        if title:
+            body["title"] = title
+        if message:
+            body["message"] = message
+        return self._request("POST", "/chats", install_id, json_body=body)
+
+    def get_chat_messages(
+        self,
+        install_id: str,
+        chat_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Get messages from a chat.
+
+        Requires scope: ``chats:read``
+
+        Args:
+            install_id: Install UUID from webhook payload.
+            chat_id: The chat UUID.
+            limit: Maximum number of messages.
+            offset: Pagination offset.
+
+        Returns::
+
+            {
+                "success": true,
+                "messages": [
+                    {"id": "...", "role": "user", "content": "...",
+                     "created_at": "..."}
+                ]
+            }
+        """
+        return self._request(
+            "GET", f"/chats/{chat_id}/messages", install_id,
+            params={"limit": limit, "offset": offset},
+        )
+
+    def send_message(
+        self,
+        install_id: str,
+        chat_id: str,
+        message: str,
+    ) -> Dict[str, Any]:
+        """Send a message to a chat.
+
+        Requires scope: ``chats:write``
+
+        Args:
+            install_id: Install UUID from webhook payload.
+            chat_id: The chat UUID.
+            message: The message text.
+
+        Returns::
+
+            {
+                "success": true,
+                "message": {"id": "...", "content": "...", ...}
+            }
+        """
+        return self._request(
+            "POST", f"/chats/{chat_id}/messages", install_id,
+            json_body={"message": message},
+        )
+
+    # ------------------------------------------------------------------ #
+    # Install & Config helpers                                              #
+    # ------------------------------------------------------------------ #
+
+    def get_config(
+        self,
+        install_id: str,
+        key: Optional[str] = None,
+    ) -> Any:
+        """Get the user's extension config (or a single key).
+
+        Convenience wrapper around :meth:`get_install_info`.
+
+        Args:
+            install_id: Install UUID from webhook payload.
+            key: If provided, return only this config key's value.
+                 Returns ``None`` if the key doesn't exist.
+
+        Returns:
+            The full config dict, or the value for *key*.
+        """
+        info = self.get_install_info(install_id)
+        config = info.get("install", {}).get("config", {}) or {}
+        if key is not None:
+            return config.get(key)
+        return config
+
+    def get_scopes(self, install_id: str) -> List[str]:
+        """Get the scopes granted by the user for this install.
+
+        Convenience wrapper around :meth:`get_install_info`.
+
+        Returns:
+            List of scope strings (e.g. ``["documents:read", "user:profile"]``).
+        """
+        info = self.get_install_info(install_id)
+        return info.get("install", {}).get("scopes_granted", [])
 
     # ------------------------------------------------------------------ #
     # Extension Data Storage                                               #
