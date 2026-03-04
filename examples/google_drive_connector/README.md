@@ -1,140 +1,196 @@
 # Google Drive Connector
 
-A full marketplace extension that connects Google Drive to Ask DIANA. Users can browse their Drive files and sync them into their Ask DIANA knowledge base.
+A marketplace extension that imports Google Drive files into Ask DIANA using the `askdiana-sdk`.
 
-## What it does
+## How to Run (Step by Step)
 
-- **`extension.installed`** — Saves the install context (user, tenant, scopes)
-- **`extension.uninstalled`** — Cleans up stored accounts and sync history
-- **OAuth flow** — Users connect their Google account via OAuth 2.0
-- **File browser** — Lists files and folders from the connected Google Drive
-- **Sync** — Downloads files from Drive and uploads them to Ask DIANA via the Extension API
+### 1. Get your Ask DIANA developer credentials
 
-## Prerequisites
+```bash
+# In your Ask DIANA app:
+# 1. Go to Developer Portal -> Apply for developer access
+# 2. Get approved by admin
+# 3. Create an API key with scopes: documents:read, documents:write, user:profile
+# 4. Copy the API key (askd_...) and webhook signing secret
+```
 
-1. **Ask DIANA developer account** with an API key (`askd_...`) that has `documents:write` scope
-2. **Google Cloud Console project** with OAuth 2.0 credentials
+### 2. Get a Google API key
 
-### Google Cloud Console Setup
+```bash
+# 1. Go to https://console.cloud.google.com/
+# 2. Create a project (or use existing)
+# 3. Enable "Google Drive API"
+# 4. Go to Credentials -> Create Credentials -> API key
+# 5. Copy the API key (AIzaSy...)
+# 6. (Optional) Restrict the key to Google Drive API only
+```
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project (or select an existing one)
-3. Enable the **Google Drive API**
-4. Go to **Credentials** > **Create Credentials** > **OAuth client ID**
-5. Application type: **Web application**
-6. Add authorized redirect URI: `https://<your-ngrok-url>/oauth/callback`
-7. Copy the **Client ID** and **Client Secret**
-
-## Setup
+### 3. Install dependencies
 
 ```bash
 cd examples/google_drive_connector
-pip install -r requirements.txt
 
-# If the SDK isn't installed globally:
+# Install the SDK
 pip install -e ../..
 
-# Copy and fill in environment variables
-cp .env.example .env
-# Edit .env with your credentials
+# Install connector dependencies
+pip install -r requirements.txt
 ```
+
+### 4. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+```
+ASKDIANA_API_KEY=askd_your_key_here
+ASKDIANA_BASE_URL=http://localhost:5001    # or your Ask DIANA URL
+WEBHOOK_SIGNING_SECRET=your-secret
+GOOGLE_API_KEY=AIzaSy_your_key_here
+PORT=5004
+```
+
+### 5. Register the extension in Ask DIANA
+
+```bash
+# Create the extension via the API (or use the Developer Portal UI):
+curl -X POST http://localhost:5001/api/marketplace/extensions \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Google Drive Connector",
+    "slug": "google-drive-connector",
+    "type": "connector",
+    "visibility": "private",
+    "description": "Import Google Drive files into Ask DIANA",
+    "short_description": "Google Drive file sync"
+  }'
+
+# Note the extension_id from the response
+
+# Submit a version with the manifest:
+curl -X POST http://localhost:5001/api/marketplace/extensions/EXTENSION_ID/versions \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "version": "1.0.0",
+    "changelog": "Initial release",
+    "webhook_url": "http://localhost:5004",
+    "manifest": <contents of manifest.json>
+  }'
+```
+
+Private extensions are **auto-approved** — no admin review needed.
+
+### 6. Start the extension server
+
+```bash
+python app.py
+```
+
+You should see:
+```
+ * Running on http://0.0.0.0:5004
+ * Debugger is active
+```
+
+### 7. Install the extension as a user
+
+```bash
+# In the Ask DIANA frontend:
+# 1. Go to Extensions dialog
+# 2. Find "Google Drive Connector"
+# 3. Click Install
+# 4. Accept the requested permissions (documents:read, documents:write, user:profile)
+```
+
+This triggers the `on_install` webhook which sets up the database schema.
+
+### 8. Use the connector
+
+```bash
+# List files (replace INSTALL_ID with your actual install ID)
+curl "http://localhost:5004/api/files?install_id=INSTALL_ID"
+
+# Sync a file to Ask DIANA
+curl -X POST http://localhost:5004/api/sync \
+  -H "Content-Type: application/json" \
+  -d '{"install_id": "INSTALL_ID", "file_id": "GOOGLE_DRIVE_FILE_ID"}'
+
+# View sync history
+curl "http://localhost:5004/api/sync/history?install_id=INSTALL_ID"
+```
+
+### For production: Use ngrok
+
+```bash
+ngrok http 5004
+# Update webhook_url to the ngrok URL when submitting the version
+```
+
+---
+
+## Architecture
+
+```
+Developer sets GOOGLE_API_KEY on the extension server
+        |
+        v
+User installs extension in Ask DIANA
+        |
+        v
+Ask DIANA sends webhook --> Extension registers SyncHistory schema
+                             in ask_extensions database
+        |
+        v
+User optionally sets root folder ID in extension settings
+        |
+        v
+/api/files --> GoogleDriveService.list_files()
+               --> Google Drive API (with server API key)
+        |
+        v
+/api/sync --> GoogleDriveService.sync_file()
+              --> Downloads from Google Drive
+              --> Uploads to Ask DIANA via client.upload_document()
+              --> Records sync history via client.set_data()
+```
+
+## Project Structure
+
+```
+google_drive_connector/
+  app.py              # Flask routes using ExtensionApp
+  drive_service.py    # GoogleDriveService (extends ConnectorService)
+  google_drive.py     # Low-level Google Drive API calls
+  models.py           # SyncHistory ExtModel (ask_extensions DB)
+  manifest.json       # Extension manifest with settings form
+  .env.example        # Environment variables template
+  requirements.txt    # Python dependencies
+  README.md           # This file
+```
+
+## SDK Features Used
+
+| SDK Feature | Used For |
+|-------------|----------|
+| `ExtensionApp` | Flask wrapper with webhook verification, model discovery |
+| `ConnectorService` | Base class with sync workflow, history tracking |
+| `ExtModel` | Declare `ext_gdrive_sync_history` table in extensions DB |
+| `client.upload_document()` | Upload synced files to Ask DIANA |
+| `client.get_config()` | Read user's settings (root_folder_id) |
+| `client.set_data()` | Store sync history records |
+| `client.list_data()` | Retrieve sync history |
+| `verify_webhook()` | Verify webhook signatures (via ExtensionApp) |
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `ASKDIANA_API_KEY` | Your developer API key (`askd_...`) |
+| `ASKDIANA_API_KEY` | Developer API key (`askd_...`) |
 | `ASKDIANA_BASE_URL` | Ask DIANA instance URL |
-| `WEBHOOK_SIGNING_SECRET` | Webhook signing secret from developer portal |
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
-| `EXTENSION_BASE_URL` | Your server's public URL (ngrok for dev) |
+| `WEBHOOK_SIGNING_SECRET` | Webhook signing secret |
+| `GOOGLE_API_KEY` | Google API key (server-side) |
 | `PORT` | Server port (default: 5004) |
-| `DATABASE_PATH` | SQLite database path (default: ./connector.db) |
-
-## Running
-
-```bash
-# Start the extension
-python app.py
-
-# In another terminal, expose with ngrok
-ngrok http 5004
-```
-
-Update `EXTENSION_BASE_URL` in `.env` with the ngrok URL, and update the redirect URI in Google Cloud Console.
-
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/webhooks/install` | Handle install webhook |
-| POST | `/webhooks/uninstall` | Handle uninstall webhook |
-| POST | `/webhooks/events` | Handle event webhooks |
-| GET | `/oauth/start?install_id=<uuid>` | Start Google OAuth flow |
-| GET | `/oauth/callback` | Google OAuth callback |
-| GET | `/api/accounts?install_id=<uuid>` | List connected Google accounts |
-| GET | `/api/files?install_id=<uuid>&account_id=<id>` | List Google Drive files |
-| POST | `/api/sync` | Sync a file to Ask DIANA |
-| GET | `/api/sync/history?install_id=<uuid>` | Get sync history |
-| GET | `/health` | Health check |
-
-### Sync Request
-
-```bash
-curl -X POST http://localhost:5004/api/sync \
-  -H "Content-Type: application/json" \
-  -d '{
-    "install_id": "uuid-from-webhook",
-    "account_id": 1,
-    "file_id": "google-drive-file-id"
-  }'
-```
-
-## Extension Manifest
-
-See `manifest.json` for the full manifest. Register this extension in the Ask DIANA marketplace with:
-
-- **Permissions**: `documents:read`, `documents:write`, `user:profile`
-- **Webhook URLs**: Point to your server's `/webhooks/install`, `/webhooks/uninstall`, `/webhooks/events`
-
-## Architecture
-
-```
-User installs extension in Ask DIANA
-        │
-        ▼
-Ask DIANA sends webhook ──► Extension saves install context
-        │
-        ▼
-User clicks "Connect Google Drive"
-        │
-        ▼
-Extension redirects to Google OAuth
-        │
-        ▼
-User authorizes ──► Extension stores tokens in SQLite
-        │
-        ▼
-User browses files via /api/files
-        │
-        ▼
-User selects file to sync
-        │
-        ▼
-Extension downloads from Google Drive
-        │
-        ▼
-Extension uploads to Ask DIANA via POST /api/ext/documents/upload
-        │
-        ▼
-Document appears in user's Ask DIANA knowledge base
-```
-
-## Required Scopes
-
-| Scope | Used for |
-|-------|----------|
-| `documents:read` | Listing existing documents |
-| `documents:write` | Uploading synced files to Ask DIANA |
-| `user:profile` | Identifying the connected user |

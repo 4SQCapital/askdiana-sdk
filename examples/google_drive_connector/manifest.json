@@ -3,8 +3,8 @@
   "slug": "google-drive-connector",
   "version": "1.0.0",
   "type": "connector",
-  "description": "Connect your Google Drive to import documents directly into Ask DIANA. Browse, select, and sync files seamlessly.",
-  "short_description": "Import documents from Google Drive into Ask DIANA",
+  "description": "Connect Google Drive to import documents into Ask DIANA. Users install the extension and can browse folders, select files, and sync them into their knowledge base.",
+  "short_description": "Import Google Drive documents into Ask DIANA",
   "permissions": [
     "documents:read",
     "documents:write",
@@ -21,5 +21,25 @@
   },
   "pricing": {
     "model": "free"
+  },
+  "ui": {
+    "type": "schema",
+    "settings_form": {
+      "fields": [
+        {
+          "name": "root_folder_id",
+          "type": "text",
+          "label": "Root Folder ID",
+          "required": false,
+          "placeholder": "Leave empty to list from root"
+        },
+        {
+          "name": "auto_sync",
+          "type": "checkbox",
+          "label": "Auto-sync new files",
+          "default": true
+        }
+      ]
+    }
   }
 }

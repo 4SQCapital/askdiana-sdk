@@ -16,6 +16,7 @@ from .models import (
     register_all_models,
 )
 from .service import ExtensionService
+from .connector import ConnectorService
 
 __all__ = [
     "AskDianaClient",
@@ -35,6 +36,7 @@ __all__ = [
     "register_all_models",
     # Services
     "ExtensionService",
+    "ConnectorService",
 ]
 
 # Flask-dependent imports (optional — requires `pip install askdiana[app]`)
@@ -50,4 +52,4 @@ try:
 except ImportError:
     pass
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
