@@ -3,7 +3,7 @@
   "slug": "google-drive-connector",
   "version": "1.0.0",
   "type": "connector",
-  "description": "Connect Google Drive to import documents into Ask DIANA. Users install the extension and can browse folders, select files, and sync them into their knowledge base.",
+  "description": "Connect your Google Drive to import documents into Ask DIANA. Users authorize their Google account via OAuth and can browse folders, select files, and sync them into their knowledge base.",
   "short_description": "Import Google Drive documents into Ask DIANA",
   "permissions": [
     "documents:read",
@@ -16,8 +16,12 @@
     "on_event": "https://<your-extension-url>/webhooks/events"
   },
   "capabilities": {
-    "list_files": "https://<your-extension-url>/api/files",
-    "sync": "https://<your-extension-url>/api/sync"
+    "auth_status": "/api/auth/status",
+    "auth_url": "/api/auth/url",
+    "auth_callback": "/api/auth/callback",
+    "auth_disconnect": "/api/auth/disconnect",
+    "list_files": "/api/files",
+    "sync": "/api/sync"
   },
   "pricing": {
     "model": "free"
@@ -32,12 +36,6 @@
           "label": "Root Folder ID",
           "required": false,
           "placeholder": "Leave empty to list from root"
-        },
-        {
-          "name": "auto_sync",
-          "type": "checkbox",
-          "label": "Auto-sync new files",
-          "default": true
         }
       ]
     }

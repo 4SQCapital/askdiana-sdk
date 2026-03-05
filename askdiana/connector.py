@@ -3,8 +3,8 @@ Base class for building file connector extensions.
 
 Connectors sync files from external sources (Google Drive, OneDrive,
 Dropbox, S3, etc.) into Ask DIANA.  ``ConnectorService`` provides
-common patterns: tracking sync history, downloading and uploading
-files, and reading user config.
+common patterns: OAuth authentication, tracking sync history,
+downloading and uploading files, and reading user config.
 
 Usage::
 
@@ -12,18 +12,30 @@ Usage::
 
     class GoogleDriveService(ConnectorService):
         source_type = "google_drive"
+        provider_name = "google_drive"
+
+        def get_auth_url(self, install_id, redirect_uri):
+            return "https://accounts.google.com/o/oauth2/v2/auth?..."
+
+        def handle_auth_callback(self, install_id, code, redirect_uri):
+            # Exchange code for tokens, store via client.set_data()
+            return {"connected": True, "account_email": "user@gmail.com"}
+
+        def get_auth_status(self, install_id):
+            return {"connected": True, "account_email": "user@gmail.com"}
+
+        def disconnect(self, install_id):
+            return {"disconnected": True}
 
         def list_files(self, install_id, folder_id=None, page_token=None):
-            api_key = self.get_config_value(install_id, "google_api_key")
-            # ... call Google Drive API ...
-            return files
+            return {"files": [...], "nextPageToken": None}
 
         def download_file(self, file_id, **kwargs):
-            # ... download from Google Drive ...
             return content, file_name, mime_type
 
-    svc = GoogleDriveService(client)
-    result = svc.sync_file(install_id, file_id="gdrive_abc123")
+    app = ExtensionApp(__name__, auto_discover=False)
+    svc = GoogleDriveService(app.client)
+    svc.register_routes(app)
 """
 
 import uuid
@@ -33,26 +45,38 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .client import AskDianaClient
+    from .app import ExtensionApp
 
 logger = logging.getLogger(__name__)
 
 
 class ConnectorService:
-    """Base class for file connector extensions.
+    """Base class for file connector extensions with OAuth support.
 
-    Subclass this and implement :meth:`download_file`.  Optionally
-    override :meth:`list_files` for browsing.
+    Subclass this and implement the OAuth methods
+    (:meth:`get_auth_url`, :meth:`handle_auth_callback`,
+    :meth:`get_auth_status`, :meth:`disconnect`) and the file methods
+    (:meth:`list_files`, :meth:`download_file`).
+
+    Call :meth:`register_routes` to wire up all API endpoints
+    automatically on an ``ExtensionApp``.
 
     Attributes:
         source_type: Identifier for the external source (e.g.
             ``"google_drive"``).  Used when uploading documents to
             Ask DIANA.
+        provider_name: Display name / identifier for this provider
+            (e.g. ``"google_drive"``).  Returned in auth status.
         sync_namespace: KV namespace for storing sync history
             (default ``"sync_history"``).
+        auth_namespace: KV namespace for storing OAuth tokens
+            (default ``"oauth_tokens"``).
     """
 
     source_type: str = "extension"
+    provider_name: str = "extension"
     sync_namespace: str = "sync_history"
+    auth_namespace: str = "oauth_tokens"
     store_history: bool = False
 
     def __init__(self, client: "AskDianaClient", store_history: bool = False):
@@ -87,6 +111,239 @@ class ConnectorService:
                 "Update extension settings."
             )
         return value
+
+    # ------------------------------------------------------------------ #
+    # OAuth operations (override in subclass)                              #
+    # ------------------------------------------------------------------ #
+
+    def get_auth_url(self, install_id: str, redirect_uri: str) -> str:
+        """Return the OAuth authorization URL for this provider.
+
+        Override in your subclass.
+
+        Args:
+            install_id: Install UUID from the webhook payload.
+            redirect_uri: URL to redirect to after authorization.
+
+        Returns:
+            The full OAuth authorization URL.
+        """
+        raise NotImplementedError("Subclass must implement get_auth_url()")
+
+    def handle_auth_callback(
+        self, install_id: str, code: str, redirect_uri: str
+    ) -> Dict[str, Any]:
+        """Exchange the OAuth authorization code for tokens.
+
+        Override in your subclass.  Should store tokens via
+        ``client.set_data()`` and return account info.
+
+        Args:
+            install_id: Install UUID.
+            code: The OAuth authorization code.
+            redirect_uri: The redirect URI used in the original request.
+
+        Returns:
+            Dict with ``"connected"`` bool, ``"account_email"`` str, etc.
+        """
+        raise NotImplementedError("Subclass must implement handle_auth_callback()")
+
+    def get_auth_status(self, install_id: str) -> Dict[str, Any]:
+        """Return the current OAuth connection status.
+
+        Override in your subclass.
+
+        Returns:
+            Dict with ``"connected"`` bool, ``"account_email"`` str or None,
+            and ``"provider"`` str.
+        """
+        raise NotImplementedError("Subclass must implement get_auth_status()")
+
+    def disconnect(self, install_id: str) -> Dict[str, Any]:
+        """Revoke OAuth tokens and clear stored credentials.
+
+        Override in your subclass.
+
+        Returns:
+            Dict with ``"disconnected"`` bool.
+        """
+        raise NotImplementedError("Subclass must implement disconnect()")
+
+    # ------------------------------------------------------------------ #
+    # Token storage helpers                                                #
+    # ------------------------------------------------------------------ #
+
+    def store_tokens(self, install_id: str, tokens: Dict[str, Any]) -> None:
+        """Store OAuth tokens in the extension data store."""
+        self.client.set_data(install_id, self.auth_namespace, "tokens", tokens)
+
+    def get_tokens(self, install_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve stored OAuth tokens, or None if not found."""
+        try:
+            result = self.client.get_data(install_id, self.auth_namespace, "tokens")
+            return result.get("data", {}).get("value")
+        except Exception:
+            return None
+
+    def clear_tokens(self, install_id: str) -> None:
+        """Delete stored OAuth tokens."""
+        try:
+            self.client.delete_data(install_id, self.auth_namespace, "tokens")
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------ #
+    # Route registration                                                   #
+    # ------------------------------------------------------------------ #
+
+    def register_routes(self, ext_app: "ExtensionApp", verify_signature: bool = True) -> None:
+        """Register all connector API routes on the ExtensionApp.
+
+        Wires up:
+        - ``GET  /api/auth/status``   → :meth:`get_auth_status`
+        - ``GET  /api/auth/url``      → :meth:`get_auth_url`
+        - ``POST /api/auth/callback`` → :meth:`handle_auth_callback`
+        - ``POST /api/auth/disconnect`` → :meth:`disconnect`
+        - ``GET  /api/files``         → :meth:`list_files`
+        - ``POST /api/sync``          → :meth:`sync_file`
+
+        Args:
+            ext_app: The ExtensionApp instance.
+            verify_signature: If True, verify ``X-AskDiana-Signature``
+                on all connector routes.  Ensures only the Ask backend
+                (or other trusted callers) can invoke these endpoints.
+                Set to ``False`` for local development.
+        """
+        from flask import request as flask_request, jsonify as flask_jsonify
+        from functools import wraps
+
+        svc = self
+        _ext_app = ext_app
+
+        def _require_signature(f):
+            """Decorator that verifies webhook signature on connector routes.
+
+            For POST requests, verifies against the raw body.
+            For GET requests, verifies against a JSON-serialized dict
+            of query parameters (matching the proxy's signing approach).
+            """
+            @wraps(f)
+            def wrapper(*args, **kwargs):
+                if not verify_signature:
+                    return f(*args, **kwargs)
+                if not _ext_app._webhook_secret:
+                    # No secret configured — skip verification
+                    return f(*args, **kwargs)
+                try:
+                    import json as _json
+                    from .webhooks import verify_webhook, WebhookVerificationError
+                    if flask_request.method == "GET":
+                        # For GET, the proxy signed json.dumps(params, sort_keys=True)
+                        params = dict(flask_request.args)
+                        body = _json.dumps(params, sort_keys=True, default=str)
+                    else:
+                        body = flask_request.get_data()
+                    verify_webhook(
+                        request_body=body,
+                        signature_header=flask_request.headers.get("X-AskDiana-Signature", ""),
+                        secret=_ext_app._webhook_secret,
+                        timestamp_header=flask_request.headers.get("X-AskDiana-Delivery-Timestamp"),
+                    )
+                except WebhookVerificationError as exc:
+                    logger.warning("Connector route signature verification failed: %s", exc)
+                    return flask_jsonify({"error": "Unauthorized"}), 401
+                return f(*args, **kwargs)
+            return wrapper
+
+        @ext_app.flask.route("/api/auth/status", methods=["GET"])
+        @_require_signature
+        def _auth_status():
+            install_id = flask_request.args.get("install_id")
+            if not install_id:
+                return flask_jsonify({"error": "install_id required"}), 400
+            try:
+                result = svc.get_auth_status(install_id)
+                result["provider"] = svc.provider_name
+                return flask_jsonify({"success": True, **result}), 200
+            except Exception as e:
+                logger.error("Auth status error: %s", e, exc_info=True)
+                return flask_jsonify({"error": str(e)}), 500
+
+        @ext_app.flask.route("/api/auth/url", methods=["GET"])
+        @_require_signature
+        def _auth_url():
+            install_id = flask_request.args.get("install_id")
+            redirect_uri = flask_request.args.get("redirect_uri", "")
+            if not install_id:
+                return flask_jsonify({"error": "install_id required"}), 400
+            try:
+                url = svc.get_auth_url(install_id, redirect_uri)
+                return flask_jsonify({"success": True, "auth_url": url}), 200
+            except Exception as e:
+                logger.error("Auth URL error: %s", e, exc_info=True)
+                return flask_jsonify({"error": str(e)}), 500
+
+        @ext_app.flask.route("/api/auth/callback", methods=["POST"])
+        @_require_signature
+        def _auth_callback():
+            data = flask_request.get_json() or {}
+            install_id = data.get("install_id")
+            code = data.get("code")
+            redirect_uri = data.get("redirect_uri", "")
+            if not install_id or not code:
+                return flask_jsonify({"error": "install_id and code required"}), 400
+            try:
+                result = svc.handle_auth_callback(install_id, code, redirect_uri)
+                return flask_jsonify({"success": True, **result}), 200
+            except Exception as e:
+                logger.error("Auth callback error: %s", e, exc_info=True)
+                return flask_jsonify({"error": str(e)}), 500
+
+        @ext_app.flask.route("/api/auth/disconnect", methods=["POST"])
+        @_require_signature
+        def _auth_disconnect():
+            data = flask_request.get_json() or {}
+            install_id = data.get("install_id")
+            if not install_id:
+                return flask_jsonify({"error": "install_id required"}), 400
+            try:
+                result = svc.disconnect(install_id)
+                return flask_jsonify({"success": True, **result}), 200
+            except Exception as e:
+                logger.error("Disconnect error: %s", e, exc_info=True)
+                return flask_jsonify({"error": str(e)}), 500
+
+        @ext_app.flask.route("/api/files", methods=["GET"])
+        @_require_signature
+        def _list_files():
+            install_id = flask_request.args.get("install_id")
+            if not install_id:
+                return flask_jsonify({"error": "install_id required"}), 400
+            try:
+                result = svc.list_files(
+                    install_id=install_id,
+                    folder_id=flask_request.args.get("folder_id"),
+                    page_token=flask_request.args.get("page_token"),
+                )
+                return flask_jsonify({"success": True, **result}), 200
+            except Exception as e:
+                logger.error("List files error: %s", e, exc_info=True)
+                return flask_jsonify({"error": str(e)}), 500
+
+        @ext_app.flask.route("/api/sync", methods=["POST"])
+        @_require_signature
+        def _sync_file():
+            data = flask_request.get_json() or {}
+            install_id = data.get("install_id")
+            file_id = data.get("file_id")
+            if not install_id or not file_id:
+                return flask_jsonify({"error": "install_id and file_id required"}), 400
+            try:
+                result = svc.sync_file(install_id=install_id, file_id=file_id)
+                return flask_jsonify(result), 200
+            except Exception as e:
+                logger.error("Sync error: %s", e, exc_info=True)
+                return flask_jsonify({"error": str(e)}), 500
 
     # ------------------------------------------------------------------ #
     # File operations (override in subclass)                               #
@@ -156,7 +413,8 @@ class ConnectorService:
         """
         file_name = file_id
         try:
-            # 1. Download
+            # 1. Download — pass install_id so subclasses can use it
+            download_kwargs.setdefault("install_id", install_id)
             content, file_name, mime_type = self.download_file(
                 file_id, **download_kwargs
             )

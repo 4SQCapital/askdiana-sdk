@@ -1,10 +1,10 @@
 """
-Google Drive Connector — Ask DIANA Marketplace Extension
+Google Drive Connector — Ask DIANA Extension
 
 A standalone Flask app that:
 1. Receives install/uninstall webhooks from Ask DIANA
-2. Uses the developer's Google API key (server-side env var) to access Drive
-3. Lists files from Google Drive for the user
+2. Handles Google OAuth on behalf of users
+3. Lists files from the user's Google Drive
 4. Downloads files and uploads them to Ask DIANA via the Extension API
 
 Uses the SDK's ExtensionApp, ConnectorService, and Data API.
@@ -13,7 +13,8 @@ Run:
     export ASKDIANA_API_KEY="askd_your_key"
     export ASKDIANA_BASE_URL="https://app.askdiana.ai"
     export WEBHOOK_SIGNING_SECRET="your-secret"
-    export GOOGLE_API_KEY="AIzaSy..."
+    export GOOGLE_CLIENT_ID="your-google-client-id"
+    export GOOGLE_CLIENT_SECRET="your-google-client-secret"
     python app.py
 """
 
@@ -44,6 +45,9 @@ app = ExtensionApp(__name__, auto_discover=False)
 # --- Service ---
 drive = GoogleDriveService(app.client)
 
+# Register all connector routes (/api/auth/*, /api/files, /api/sync)
+drive.register_routes(app)
+
 
 # ================================================================
 # Webhook Handlers
@@ -51,7 +55,7 @@ drive = GoogleDriveService(app.client)
 
 @app.flask.route("/webhooks/install", methods=["POST"])
 def on_install():
-    """Handle extension.installed — set up schema."""
+    """Handle extension.installed."""
     app.verify_request()
 
     body = request.get_json()
@@ -63,12 +67,17 @@ def on_install():
 
 @app.flask.route("/webhooks/uninstall", methods=["POST"])
 def on_uninstall():
-    """Handle extension.uninstalled."""
+    """Handle extension.uninstalled — clean up stored tokens."""
     app.verify_request()
 
     body = request.get_json()
     install_id = body.get("data", {}).get("install_id")
     if install_id:
+        # Clean up OAuth tokens
+        try:
+            drive.disconnect(install_id)
+        except Exception as e:
+            logger.warning(f"Failed to clean up tokens on uninstall: {e}")
         logger.info(f"Extension uninstalled: {install_id}")
 
     return jsonify({"ok": True}), 200
@@ -82,69 +91,6 @@ def on_event():
     body = request.get_json()
     logger.info(f"Event: {body.get('event')}")
     return jsonify({"ok": True}), 200
-
-
-# ================================================================
-# API Endpoints
-# ================================================================
-
-@app.flask.route("/api/files", methods=["GET"])
-def api_list_files():
-    """List files from Google Drive.
-
-    Query params:
-        install_id (required): The extension install UUID.
-        folder_id (optional): Google Drive folder ID to list from.
-        page_token (optional): Pagination token.
-    """
-    install_id = request.args.get("install_id")
-    if not install_id:
-        return jsonify({"error": "install_id required"}), 400
-
-    try:
-        result = drive.list_files(
-            install_id=install_id,
-            folder_id=request.args.get("folder_id"),
-            page_token=request.args.get("page_token"),
-        )
-        return jsonify({"success": True, **result}), 200
-
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        logger.error(f"List files error: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
-
-
-@app.flask.route("/api/sync", methods=["POST"])
-def sync_file():
-    """Download a file from Google Drive and upload to Ask DIANA.
-
-    Request body::
-
-        {
-            "install_id": "uuid",
-            "file_id": "google_drive_file_id"
-        }
-    """
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "JSON body required"}), 400
-
-    install_id = data.get("install_id")
-    file_id = data.get("file_id")
-
-    if not install_id or not file_id:
-        return jsonify({"error": "install_id and file_id required"}), 400
-
-    try:
-        result = drive.sync_file(install_id=install_id, file_id=file_id)
-        return jsonify(result), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        logger.error(f"Sync error: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
