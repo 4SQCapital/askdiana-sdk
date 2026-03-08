@@ -82,9 +82,14 @@ class ExtensionApp:
         self._base_url = base_url or os.environ.get("ASKDIANA_BASE_URL", "https://app.askdiana.ai")
         self._webhook_secret = webhook_secret or os.environ.get("WEBHOOK_SIGNING_SECRET", "")
 
+        self._verify_ssl = os.environ.get('ASKDIANA_VERIFY_SSL', 'true').lower() not in ('0', 'false', 'no')
+        if not self._verify_ssl:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
         self.client: Optional[AskDianaClient] = None
         if self._api_key:
-            self.client = AskDianaClient(api_key=self._api_key, base_url=self._base_url)
+            self.client = AskDianaClient(api_key=self._api_key, base_url=self._base_url, verify_ssl=self._verify_ssl)
 
         # --- Registries ---
         self._models: List[Type[ExtModel]] = []

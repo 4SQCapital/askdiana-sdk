@@ -220,6 +220,14 @@ class ConnectorService:
         svc = self
         _ext_app = ext_app
 
+        def _apply_base_url(data):
+            """If the Ask backend passed askdiana_base_url, update the client."""
+            base_url = None
+            if isinstance(data, dict):
+                base_url = data.pop("askdiana_base_url", None)
+            if base_url:
+                svc.client.base_url = base_url.rstrip("/")
+
         def _require_signature(f):
             """Decorator that verifies webhook signature on connector routes.
 
@@ -262,6 +270,7 @@ class ConnectorService:
             if not install_id:
                 return flask_jsonify({"error": "install_id required"}), 400
             try:
+                _apply_base_url(dict(flask_request.args))
                 result = svc.get_auth_status(install_id)
                 result["provider"] = svc.provider_name
                 return flask_jsonify({"success": True, **result}), 200
@@ -277,6 +286,7 @@ class ConnectorService:
             if not install_id:
                 return flask_jsonify({"error": "install_id required"}), 400
             try:
+                _apply_base_url(dict(flask_request.args))
                 url = svc.get_auth_url(install_id, redirect_uri)
                 return flask_jsonify({"success": True, "auth_url": url}), 200
             except Exception as e:
@@ -287,6 +297,7 @@ class ConnectorService:
         @_require_signature
         def _auth_callback():
             data = flask_request.get_json() or {}
+            _apply_base_url(data)
             install_id = data.get("install_id")
             code = data.get("code")
             redirect_uri = data.get("redirect_uri", "")
@@ -303,6 +314,7 @@ class ConnectorService:
         @_require_signature
         def _auth_disconnect():
             data = flask_request.get_json() or {}
+            _apply_base_url(data)
             install_id = data.get("install_id")
             if not install_id:
                 return flask_jsonify({"error": "install_id required"}), 400
@@ -320,6 +332,7 @@ class ConnectorService:
             if not install_id:
                 return flask_jsonify({"error": "install_id required"}), 400
             try:
+                _apply_base_url(dict(flask_request.args))
                 result = svc.list_files(
                     install_id=install_id,
                     folder_id=flask_request.args.get("folder_id"),
@@ -334,6 +347,7 @@ class ConnectorService:
         @_require_signature
         def _sync_file():
             data = flask_request.get_json() or {}
+            _apply_base_url(data)
             install_id = data.get("install_id")
             file_id = data.get("file_id")
             if not install_id or not file_id:

@@ -34,12 +34,14 @@ class AskDianaClient:
         api_key: str,
         base_url: str = "https://app.askdiana.ai",
         timeout: int = 30,
+        verify_ssl: bool = True,
     ):
         """
         Args:
             api_key: Your developer API key (``askd_...`` format).
             base_url: Ask DIANA instance URL (no trailing slash).
             timeout: HTTP request timeout in seconds.
+            verify_ssl: If False, skip SSL cert verification (local dev).
         """
         if not api_key:
             raise ValueError("api_key is required")
@@ -47,9 +49,9 @@ class AskDianaClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self._session = requests.Session()
+        self._session.verify = verify_ssl
         self._session.headers.update({
             "X-API-Key": self.api_key,
-            "Content-Type": "application/json",
         })
 
     def _request(
