@@ -17,6 +17,7 @@ from .models import (
 )
 from .service import ExtensionService
 from .connector import ConnectorService
+from .chat import ChatService
 
 __all__ = [
     "AskDianaClient",
@@ -37,6 +38,7 @@ __all__ = [
     # Services
     "ExtensionService",
     "ConnectorService",
+    "ChatService",
 ]
 
 # Flask-dependent imports (optional — requires `pip install askdiana[app]`)

@@ -1,0 +1,3 @@
+askdiana[app]
+python-dotenv
+google-genai
