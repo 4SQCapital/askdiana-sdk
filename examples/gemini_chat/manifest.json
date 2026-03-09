@@ -1,0 +1,54 @@
+{
+  "name": "Ask Gemini",
+  "slug": "ask-gemini",
+  "version": "1.0.0",
+  "type": "ai_ml",
+  "description": "Chat with Google Gemini AI directly in Ask DIANA. Supports multi-turn conversations with full context from your chat history. Users can bring their own API key or use the developer's default.",
+  "short_description": "Chat with Google Gemini AI",
+  "permissions": [
+    "chats:read",
+    "chats:write"
+  ],
+  "webhooks": {
+    "on_install": "https://<your-extension-url>/webhooks/install",
+    "on_uninstall": "https://<your-extension-url>/webhooks/uninstall",
+    "on_event": "https://<your-extension-url>/webhooks/events"
+  },
+  "capabilities": {
+    "chat_respond": "/api/chat"
+  },
+  "chat_config": {
+    "display_name": "Ask Gemini",
+    "color": "#4285F4",
+    "description": "Chat with Google Gemini AI"
+  },
+  "pricing": {
+    "model": "free"
+  },
+  "ui": {
+    "type": "schema",
+    "settings_form": {
+      "fields": [
+        {
+          "name": "api_key",
+          "type": "password",
+          "label": "Gemini API Key",
+          "required": false,
+          "placeholder": "Enter your Google AI API key (optional — uses default if empty)"
+        },
+        {
+          "name": "model",
+          "type": "select",
+          "label": "Model",
+          "required": false,
+          "options": [
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-2.5-pro-preview-06-05"
+          ],
+          "default": "gemini-2.0-flash"
+        }
+      ]
+    }
+  }
+}
