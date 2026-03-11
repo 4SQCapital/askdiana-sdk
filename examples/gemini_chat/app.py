@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass

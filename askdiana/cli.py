@@ -403,11 +403,12 @@ def _cmd_db_schema():
 def _cmd_db_push(args):
     """Register and apply schemas via the API."""
     # Load .env from the current directory so developers don't need to export vars
+    env_path = os.path.join(os.getcwd(), ".env")
     try:
         from dotenv import load_dotenv
-        load_dotenv()
+        load_dotenv(dotenv_path=env_path, override=True)
     except ImportError:
-        pass
+        print("Warning: python-dotenv not installed. Install it or export env vars manually.", file=sys.stderr)
     install_id = args.install_id or os.environ.get("ASKDIANA_INSTALL_ID", "")
     version = args.version or "1.0.0"
     api_key = os.environ.get("ASKDIANA_API_KEY", "")
@@ -482,6 +483,195 @@ def _ensure_dir(path: str):
         os.makedirs(d, exist_ok=True)
 
 
+# ------------------------------------------------------------------ #
+# Package & Deploy commands                                            #
+# ------------------------------------------------------------------ #
+
+# Files and directories to exclude from the package
+_PACKAGE_EXCLUDES = {
+    ".env.local", ".env.production",
+    "__pycache__", ".git", ".venv", "venv", "env",
+    "node_modules", ".mypy_cache", ".pytest_cache",
+    ".DS_Store", "Thumbs.db",
+}
+
+# SDK/platform env vars stripped from .env before packaging
+_ENV_STRIP_PREFIXES = (
+    "ASKDIANA_API_KEY", "ASKDIANA_BASE_URL", "ASKDIANA_UPLOAD_URL",
+    "ASKDIANA_EXTENSION_ID", "ASKDIANA_VERSION_ID", "ASKDIANA_VERIFY_SSL",
+    "ASKDIANA_INSTALL_ID", "WEBHOOK_SIGNING_SECRET",
+)
+
+
+def _sanitize_env_file(src_path: str, dest_path: str):
+    """Copy .env but strip SDK/platform credentials — keep only runtime vars."""
+    with open(src_path, "r") as f:
+        lines = f.readlines()
+    with open(dest_path, "w") as f:
+        for line in lines:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                key = stripped.split("=", 1)[0].strip()
+                if key.startswith(_ENV_STRIP_PREFIXES):
+                    continue
+            f.write(line)
+
+
+def cmd_package(args):
+    """Create a deployable zip package from the current extension project."""
+    cwd = os.getcwd()
+
+    # Validate required files
+    required = ["app.py", "requirements.txt", "manifest.json"]
+    missing = [f for f in required if not os.path.exists(os.path.join(cwd, f))]
+    if missing:
+        print(f"Error: missing required files: {', '.join(missing)}", file=sys.stderr)
+        print("Make sure you're running this from your extension project root.")
+        sys.exit(1)
+
+    # Read manifest for slug and version
+    try:
+        with open(os.path.join(cwd, "manifest.json"), "r") as f:
+            manifest = json.load(f)
+    except Exception as e:
+        print(f"Error reading manifest.json: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    slug = manifest.get("slug", os.path.basename(cwd))
+    version = manifest.get("version", "1.0.0")
+    output_name = args.output or f"extension-{slug}-{version}.zip"
+
+    import zipfile as _zf
+
+    file_count = 0
+    with _zf.ZipFile(output_name, "w", _zf.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(cwd):
+            # Skip excluded directories
+            dirs[:] = [d for d in dirs if d not in _PACKAGE_EXCLUDES]
+            for fname in files:
+                if fname in _PACKAGE_EXCLUDES:
+                    continue
+                if fname.endswith((".pyc", ".pyo")):
+                    continue
+                full_path = os.path.join(root, fname)
+                arc_name = os.path.relpath(full_path, cwd)
+                zf.write(full_path, arc_name)
+                file_count += 1
+
+    size_kb = os.path.getsize(output_name) / 1024
+    print(f"Package created: {output_name}")
+    print(f"  Files: {file_count}")
+    print(f"  Size: {size_kb:.1f} KB")
+    print(f"  Slug: {slug}")
+    print(f"  Version: {version}")
+
+
+def cmd_deploy(args):
+    """Package and upload to Ask DIANA for platform-hosted deployment."""
+    # Load .env from the current working directory
+    env_path = os.path.join(os.getcwd(), ".env")
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=env_path, override=True)
+    except ImportError:
+        print("Warning: python-dotenv not installed. Install it or export env vars manually.", file=sys.stderr)
+
+    api_key = os.environ.get("ASKDIANA_API_KEY", "")
+    base_url = os.environ.get("ASKDIANA_UPLOAD_URL", "") or os.environ.get("ASKDIANA_BASE_URL", "https://app.askdiana.ai")
+    verify_ssl = os.environ.get("ASKDIANA_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
+    extension_id = args.extension_id or os.environ.get("ASKDIANA_EXTENSION_ID", "")
+    version_id = args.version_id or os.environ.get("ASKDIANA_VERSION_ID", "")
+
+    if not api_key:
+        print("Error: ASKDIANA_API_KEY is required.", file=sys.stderr)
+        sys.exit(1)
+    if not extension_id:
+        print("Error: --extension-id is required (or set ASKDIANA_EXTENSION_ID).", file=sys.stderr)
+        sys.exit(1)
+    if not version_id:
+        print("Error: --version-id is required (or set ASKDIANA_VERSION_ID).", file=sys.stderr)
+        sys.exit(1)
+
+    # Package first
+    cwd = os.getcwd()
+    required = ["app.py", "requirements.txt", "manifest.json"]
+    missing = [f for f in required if not os.path.exists(os.path.join(cwd, f))]
+    if missing:
+        print(f"Error: missing required files: {', '.join(missing)}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        with open(os.path.join(cwd, "manifest.json"), "r") as f:
+            manifest = json.load(f)
+    except Exception as e:
+        print(f"Error reading manifest.json: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    slug = manifest.get("slug", os.path.basename(cwd))
+    version = manifest.get("version", "1.0.0")
+    package_name = f"extension-{slug}-{version}.zip"
+
+    import zipfile as _zf
+
+    print(f"Packaging {slug} v{version}...")
+    with _zf.ZipFile(package_name, "w", _zf.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(cwd):
+            dirs[:] = [d for d in dirs if d not in _PACKAGE_EXCLUDES]
+            for fname in files:
+                if fname in _PACKAGE_EXCLUDES or fname.endswith((".pyc", ".pyo")):
+                    continue
+                full_path = os.path.join(root, fname)
+                arc_name = os.path.relpath(full_path, cwd)
+                # Sanitize .env — strip SDK credentials, keep runtime vars
+                if fname == ".env":
+                    import tempfile as _tmp
+                    with _tmp.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as tmp:
+                        _sanitize_env_file(full_path, tmp.name)
+                        zf.write(tmp.name, arc_name)
+                    os.unlink(tmp.name)
+                else:
+                    zf.write(full_path, arc_name)
+
+    # Upload
+    import requests
+
+    url = f"{base_url}/api/marketplace/extensions/{extension_id}/versions/{version_id}/upload"
+    print(f"Uploading to {base_url}...")
+
+    with open(package_name, "rb") as f:
+        resp = requests.post(
+            url,
+            headers={"X-API-Key": api_key},
+            files={"file": (package_name, f, "application/zip")},
+            timeout=120,
+            verify=verify_ssl,
+        )
+
+    # Clean up local package
+    try:
+        os.remove(package_name)
+    except Exception:
+        pass
+
+    if resp.status_code == 200:
+        data = resp.json()
+        print(f"Upload successful!")
+        print(f"  Deployment type: platform_hosted")
+        print(f"  Status: {data.get('version', {}).get('status', 'unknown')}")
+        print()
+        print("Next steps:")
+        print("  1. An admin will review your code for security")
+        print("  2. Once approved, the admin will deploy your extension")
+        print("  3. Your extension will be available in the marketplace")
+    else:
+        print(f"Upload failed ({resp.status_code}):", file=sys.stderr)
+        try:
+            print(f"  {resp.json().get('message', resp.text)}", file=sys.stderr)
+        except Exception:
+            print(f"  {resp.text}", file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="askdiana",
@@ -505,6 +695,13 @@ def main():
     db_p.add_argument("--install-id", help="Install UUID (or set ASKDIANA_INSTALL_ID)")
     db_p.add_argument("--version", default="1.0.0", help="Extension version (default: 1.0.0)")
 
+    pkg_p = sub.add_parser("package", help="Create a deployable zip package")
+    pkg_p.add_argument("-o", "--output", help="Output filename (default: extension-<slug>-<version>.zip)")
+
+    deploy_p = sub.add_parser("deploy", help="Package and upload for platform-hosted deployment")
+    deploy_p.add_argument("--extension-id", help="Extension UUID (or set ASKDIANA_EXTENSION_ID)")
+    deploy_p.add_argument("--version-id", help="Version UUID (or set ASKDIANA_VERSION_ID)")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -513,6 +710,10 @@ def main():
         cmd_scaffold(args)
     elif args.command == "db":
         cmd_db(args)
+    elif args.command == "package":
+        cmd_package(args)
+    elif args.command == "deploy":
+        cmd_deploy(args)
     else:
         parser.print_help()
 
