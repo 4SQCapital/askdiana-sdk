@@ -199,12 +199,15 @@ class AskDianaClient:
         if source_reference:
             data["source_reference"] = source_reference
 
+        # Use a longer timeout for file uploads — the backend needs time
+        # to receive, store, and begin processing the document.
+        upload_timeout = max(self.timeout, 120)
         response = self._session.post(
             url,
             headers=headers,
             files=files,
             data=data,
-            timeout=self.timeout,
+            timeout=upload_timeout,
         )
         response.raise_for_status()
         return response.json()
