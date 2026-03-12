@@ -57,6 +57,13 @@ def exchange_code(
     redirect_uri: str,
 ) -> Dict[str, Any]:
     """Exchange an authorization code for access + refresh tokens."""
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+    _logger.info(
+        "exchange_code: redirect_uri=%s client_id=%s...%s",
+        redirect_uri, client_id[:8] if client_id else "EMPTY",
+        client_id[-4:] if client_id else "",
+    )
     resp = requests.post(GOOGLE_TOKEN_URL, data={
         "code": code,
         "client_id": client_id,
@@ -64,6 +71,11 @@ def exchange_code(
         "redirect_uri": redirect_uri,
         "grant_type": "authorization_code",
     })
+    if resp.status_code != 200:
+        _logger.error(
+            "Google token exchange failed: status=%d body=%s",
+            resp.status_code, resp.text[:500],
+        )
     resp.raise_for_status()
     return resp.json()
 

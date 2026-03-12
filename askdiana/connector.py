@@ -287,6 +287,7 @@ class ConnectorService:
                 return flask_jsonify({"error": "install_id required"}), 400
             try:
                 _apply_base_url(dict(flask_request.args))
+                logger.info("Auth URL request: install_id=%s redirect_uri=%s", install_id, redirect_uri)
                 url = svc.get_auth_url(install_id, redirect_uri)
                 return flask_jsonify({"success": True, "auth_url": url}), 200
             except Exception as e:
@@ -304,6 +305,10 @@ class ConnectorService:
             if not install_id or not code:
                 return flask_jsonify({"error": "install_id and code required"}), 400
             try:
+                logger.info(
+                    "Auth callback: install_id=%s redirect_uri=%s code=%s...",
+                    install_id, redirect_uri, code[:10] if code else "NONE",
+                )
                 result = svc.handle_auth_callback(install_id, code, redirect_uri)
                 return flask_jsonify({"success": True, **result}), 200
             except Exception as e:
