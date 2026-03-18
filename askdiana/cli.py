@@ -84,7 +84,6 @@ MANIFEST_TEMPLATE = """{
 
 ENV_TEMPLATE = """ASKDIANA_API_KEY=askd_your_key_here
 ASKDIANA_BASE_URL=https://app.askdiana.ai
-WEBHOOK_SIGNING_SECRET=your-webhook-secret
 """
 
 MODELS_INIT = '''"""Extension models -- discovered automatically by ExtensionApp."""

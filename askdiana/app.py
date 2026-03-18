@@ -25,7 +25,7 @@ from flask import Flask, jsonify, request
 from .client import AskDianaClient
 from .discovery import discover_blueprints, discover_models
 from .models import ExtModel, register_all_models
-from .webhooks import WebhookVerificationError, verify_webhook
+from .webhooks import WebhookVerificationError, verify_bearer_token
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,6 @@ class ExtensionApp:
         *,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        webhook_secret: Optional[str] = None,
         auto_discover: bool = True,
         models_package: Optional[str] = None,
         controllers_package: Optional[str] = None,
@@ -58,7 +57,6 @@ class ExtensionApp:
             import_name: Passed to Flask (usually ``__name__``).
             api_key: Override ``ASKDIANA_API_KEY`` env var.
             base_url: Override ``ASKDIANA_BASE_URL`` env var.
-            webhook_secret: Override ``WEBHOOK_SIGNING_SECRET`` env var.
             auto_discover: Scan ``models/`` and ``controllers/`` packages.
             models_package: Dotted path to models package.
             controllers_package: Dotted path to controllers package.
@@ -80,7 +78,7 @@ class ExtensionApp:
         # --- SDK client ---
         self._api_key = api_key or os.environ.get("ASKDIANA_API_KEY", "")
         self._base_url = base_url or os.environ.get("ASKDIANA_BASE_URL", "https://app.askdiana.ai")
-        self._webhook_secret = webhook_secret or os.environ.get("WEBHOOK_SIGNING_SECRET", "")
+        # webhook_secret is no longer used — auth is via ASKDIANA_API_KEY Bearer token
 
         self._verify_ssl = os.environ.get('ASKDIANA_VERIFY_SSL', 'true').lower() not in ('0', 'false', 'no')
         if not self._verify_ssl:
@@ -123,17 +121,21 @@ class ExtensionApp:
     # ------------------------------------------------------------------ #
 
     def verify_request(self) -> None:
-        """Verify the current Flask request's webhook signature.
+        """Verify the current Flask request's Bearer token.
+
+        Compares the ``Authorization: Bearer <token>`` header against
+        this extension's ``ASKDIANA_API_KEY``.
 
         Raises:
             WebhookVerificationError: If verification fails.
         """
-        verify_webhook(
-            request_body=request.get_data(),
-            signature_header=request.headers.get("X-AskDiana-Signature", ""),
-            secret=self._webhook_secret,
-            timestamp_header=request.headers.get("X-AskDiana-Delivery-Timestamp"),
-        )
+        try:
+            verify_bearer_token(
+                authorization_header=request.headers.get("Authorization", ""),
+                expected_key=self._api_key,
+            )
+        except ValueError as exc:
+            raise WebhookVerificationError(str(exc)) from exc
 
     @property
     def models(self) -> List[Type[ExtModel]]:

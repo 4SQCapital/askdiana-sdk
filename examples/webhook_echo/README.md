@@ -11,7 +11,7 @@ pip install -r requirements.txt
 ## Run
 
 ```bash
-export WEBHOOK_SIGNING_SECRET="your-secret-from-env"
+export ASKDIANA_API_KEY="askd_your_key"
 python app.py
 ```
 

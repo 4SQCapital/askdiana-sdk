@@ -10,8 +10,7 @@ A marketplace extension that imports Google Drive files into Ask DIANA using the
 # In your Ask DIANA app:
 # 1. Go to Developer Portal -> Apply for developer access
 # 2. Get approved by admin
-# 3. Create an API key with scopes: documents:read, documents:write, user:profile
-# 4. Copy the API key (askd_...) and webhook signing secret
+# 3. Create an extension and copy its API key (askd_...)
 ```
 
 ### 2. Get a Google API key
@@ -47,7 +46,6 @@ Edit `.env`:
 ```
 ASKDIANA_API_KEY=askd_your_key_here
 ASKDIANA_BASE_URL=http://localhost:5001    # or your Ask DIANA URL
-WEBHOOK_SIGNING_SECRET=your-secret
 GOOGLE_API_KEY=AIzaSy_your_key_here
 PORT=5004
 ```
@@ -183,7 +181,7 @@ google_drive_connector/
 | `client.get_config()` | Read user's settings (root_folder_id) |
 | `client.set_data()` | Store sync history records |
 | `client.list_data()` | Retrieve sync history |
-| `verify_webhook()` | Verify webhook signatures (via ExtensionApp) |
+| `verify_request()` | Verify Bearer token auth (via ExtensionApp) |
 
 ## Environment Variables
 
@@ -191,6 +189,5 @@ google_drive_connector/
 |----------|-------------|
 | `ASKDIANA_API_KEY` | Developer API key (`askd_...`) |
 | `ASKDIANA_BASE_URL` | Ask DIANA instance URL |
-| `WEBHOOK_SIGNING_SECRET` | Webhook signing secret |
 | `GOOGLE_API_KEY` | Google API key (server-side) |
 | `PORT` | Server port (default: 5004) |

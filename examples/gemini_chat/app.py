@@ -12,7 +12,6 @@ Uses the SDK's ExtensionApp, ChatService, and Data API.
 Run:
     export ASKDIANA_API_KEY="askd_your_key"
     export ASKDIANA_BASE_URL="https://app.askdiana.ai"
-    export WEBHOOK_SIGNING_SECRET="your-secret"
     export GEMINI_API_KEY="your-gemini-api-key"
     python app.py
 """

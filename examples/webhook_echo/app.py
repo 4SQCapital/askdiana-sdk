@@ -5,7 +5,7 @@ Receives any webhook event, logs the payload, and returns 200.
 Great for testing that your webhook endpoint is reachable.
 
 Run:
-    export WEBHOOK_SIGNING_SECRET="your-secret"
+    export ASKDIANA_API_KEY="askd_your_key"
     python app.py
 
 Then expose via ngrok for testing:
@@ -21,28 +21,26 @@ from flask import Flask, request, jsonify
 
 # Allow importing askdiana from the SDK root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
-from askdiana import verify_webhook, WebhookVerificationError
+from askdiana import verify_bearer_token
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SIGNING_SECRET", "")
+API_KEY = os.environ.get("ASKDIANA_API_KEY", "")
 
 
 @app.route("/webhooks", methods=["POST"])
 def handle_webhook():
     """Receive and log any webhook event from Ask DIANA."""
-    # Verify signature
+    # Verify Bearer token
     try:
-        verify_webhook(
-            request_body=request.get_data(),
-            signature_header=request.headers.get("X-AskDiana-Signature", ""),
-            secret=WEBHOOK_SECRET,
-            timestamp_header=request.headers.get("X-AskDiana-Delivery-Timestamp"),
+        verify_bearer_token(
+            authorization_header=request.headers.get("Authorization", ""),
+            expected_key=API_KEY,
         )
-        logger.info("Signature verified OK")
-    except WebhookVerificationError as e:
+        logger.info("Bearer token verified OK")
+    except ValueError as e:
         logger.warning(f"Verification failed: {e}")
         return jsonify({"error": str(e)}), 401
 
