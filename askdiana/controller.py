@@ -2,7 +2,7 @@
 Controller helpers and decorators for extension Flask Blueprints.
 
 Provides:
-- ``webhook_required``: decorator that verifies webhook signatures
+- ``webhook_required``: decorator that verifies Bearer token auth
 - ``install_id_required``: decorator that extracts install_id from
   request args or JSON body
 """
@@ -14,19 +14,19 @@ from typing import Callable, Optional
 
 from flask import g, jsonify, request
 
-from .webhooks import WebhookVerificationError, verify_webhook
+from .webhooks import verify_bearer_token
 
 logger = logging.getLogger(__name__)
 
 
 def webhook_required(secret: Optional[str] = None):
-    """Decorator that verifies the Ask DIANA webhook signature.
+    """Decorator that verifies the Ask DIANA Bearer token.
 
     If verification fails, returns a ``401`` JSON response.
 
     Args:
-        secret: Webhook signing secret.  Falls back to the
-            ``WEBHOOK_SIGNING_SECRET`` environment variable.
+        secret: API key to verify against.  Falls back to the
+            ``ASKDIANA_API_KEY`` environment variable.
 
     Usage::
 
@@ -40,16 +40,14 @@ def webhook_required(secret: Optional[str] = None):
     def decorator(fn: Callable) -> Callable:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            signing_secret = secret or os.environ.get("WEBHOOK_SIGNING_SECRET", "")
+            expected_key = secret or os.environ.get("ASKDIANA_API_KEY", "")
             try:
-                verify_webhook(
-                    request_body=request.get_data(),
-                    signature_header=request.headers.get("X-AskDiana-Signature", ""),
-                    secret=signing_secret,
-                    timestamp_header=request.headers.get("X-AskDiana-Delivery-Timestamp"),
+                verify_bearer_token(
+                    authorization_header=request.headers.get("Authorization", ""),
+                    expected_key=expected_key,
                 )
-            except WebhookVerificationError as exc:
-                logger.warning("Webhook verification failed: %s", exc)
+            except ValueError as exc:
+                logger.warning("Bearer token verification failed: %s", exc)
                 return jsonify({"error": str(exc)}), 401
             return fn(*args, **kwargs)
 

@@ -1,96 +1,106 @@
 """
-Webhook signature verification for Ask DIANA extensions.
+Webhook request verification for Ask DIANA extensions.
 
-Ask DIANA signs every webhook delivery with HMAC-SHA256 so your extension
-can verify the request is authentic.
+Ask DIANA authenticates every webhook delivery and API call with a Bearer
+token (the extension's ``ASKDIANA_API_KEY``).  Your extension verifies the
+request by comparing the token to its own key.
 
 Usage::
 
-    from askdiana import verify_webhook, WebhookVerificationError
+    from askdiana import verify_bearer_token
 
     @app.route("/webhooks", methods=["POST"])
     def handle_webhook():
         try:
-            verify_webhook(
-                request_body=request.get_data(),
-                signature_header=request.headers["X-AskDiana-Signature"],
-                secret=WEBHOOK_SECRET,
-                timestamp_header=request.headers.get("X-AskDiana-Delivery-Timestamp"),
+            verify_bearer_token(
+                authorization_header=request.headers.get("Authorization", ""),
+                expected_key=os.environ["ASKDIANA_API_KEY"],
             )
-        except WebhookVerificationError as e:
+        except ValueError as e:
             return {"error": str(e)}, 401
 
         # Process the verified event ...
 """
 
 import hmac
-import hashlib
-import time
-from typing import Optional
 
 
 class WebhookVerificationError(Exception):
-    """Raised when webhook signature verification fails."""
+    """Raised when webhook request verification fails.
 
-
-def verify_webhook(
-    request_body,
-    signature_header: str,
-    secret: str,
-    tolerance_seconds: Optional[int] = 300,
-    timestamp_header: Optional[str] = None,
-) -> bool:
+    .. deprecated::
+        Kept for backwards compatibility.  New code should catch
+        ``ValueError`` instead.
     """
-    Verify an incoming webhook from Ask DIANA.
+
+
+def verify_bearer_token(
+    authorization_header: str,
+    expected_key: str,
+) -> bool:
+    """Verify an incoming request from Ask DIANA using Bearer token auth.
 
     Args:
-        request_body: Raw request body (bytes or str).
-        signature_header: Value of the ``X-AskDiana-Signature`` header
-            (format: ``sha256=<hex_digest>``).
-        secret: Your ``WEBHOOK_SIGNING_SECRET``.
-        tolerance_seconds: Maximum acceptable age of a webhook in seconds
-            (default 5 min).  Set to ``None`` to skip timestamp checking.
-        timestamp_header: Value of the ``X-AskDiana-Delivery-Timestamp``
-            header (Unix epoch seconds).
+        authorization_header: Value of the ``Authorization`` header
+            (format: ``Bearer <token>``).
+        expected_key: Your ``ASKDIANA_API_KEY``.
 
     Returns:
         ``True`` when verification passes.
 
     Raises:
-        WebhookVerificationError: If the signature is invalid, the format
-            is wrong, or the timestamp is stale.
+        ValueError: If the token is missing or does not match.
     """
-    # --- Timestamp freshness check ---
-    if tolerance_seconds is not None and timestamp_header:
-        try:
-            ts = int(timestamp_header)
-            if abs(time.time() - ts) > tolerance_seconds:
-                raise WebhookVerificationError(
-                    "Webhook timestamp too old (possible replay)"
-                )
-        except (ValueError, TypeError):
-            raise WebhookVerificationError("Invalid timestamp header")
-
-    # --- Signature format ---
-    if not signature_header or not signature_header.startswith("sha256="):
-        raise WebhookVerificationError(
-            "Invalid signature format — expected 'sha256=<hex>'"
+    if not authorization_header or not authorization_header.startswith("Bearer "):
+        raise ValueError(
+            "Missing or invalid Authorization header — expected 'Bearer <token>'"
         )
-    received_sig = signature_header[7:]
 
-    # --- Compute expected HMAC ---
-    body_str = (
-        request_body.decode("utf-8")
-        if isinstance(request_body, (bytes, bytearray))
-        else request_body
-    )
-    expected_sig = hmac.new(
-        secret.encode("utf-8"),
-        body_str.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
+    token = authorization_header[7:]
 
-    if not hmac.compare_digest(received_sig, expected_sig):
-        raise WebhookVerificationError("Signature mismatch")
+    if not expected_key:
+        raise ValueError("ASKDIANA_API_KEY is not configured")
+
+    if not hmac.compare_digest(token, expected_key):
+        raise ValueError("Invalid Bearer token")
 
     return True
+
+
+# ------------------------------------------------------------------
+# Backwards-compatible alias
+# ------------------------------------------------------------------
+
+def verify_webhook(
+    request_body=None,
+    signature_header: str = "",
+    secret: str = "",
+    tolerance_seconds=None,
+    timestamp_header=None,
+    *,
+    authorization_header: str = "",
+    expected_key: str = "",
+) -> bool:
+    """Backwards-compatible verification wrapper.
+
+    If *authorization_header* is provided, delegates to Bearer token
+    verification.  Otherwise raises ``WebhookVerificationError`` since
+    HMAC signing has been removed.
+
+    .. deprecated::
+        Use :func:`verify_bearer_token` directly.
+    """
+    # New-style Bearer auth
+    auth = authorization_header or ""
+    key = expected_key or secret or ""
+    if auth:
+        try:
+            return verify_bearer_token(auth, key)
+        except ValueError as exc:
+            raise WebhookVerificationError(str(exc)) from exc
+
+    raise WebhookVerificationError(
+        "HMAC webhook signing has been removed. "
+        "Ask DIANA now uses Bearer token authentication. "
+        "Update your extension to check the Authorization header."
+    )

@@ -140,7 +140,7 @@ class ChatService:
 
         Args:
             ext_app: The ExtensionApp instance.
-            verify_signature: If True, verify ``X-AskDiana-Signature``.
+            verify_signature: If True, verify ``Authorization: Bearer`` token.
         """
         from flask import request as flask_request, jsonify as flask_jsonify
         from functools import wraps
@@ -164,8 +164,8 @@ class ChatService:
                 try:
                     _ext_app.verify_request()
                 except Exception as e:
-                    logger.warning("Signature verification failed: %s", e)
-                    return flask_jsonify({"error": "Invalid signature"}), 401
+                    logger.warning("Bearer token verification failed: %s", e)
+                    return flask_jsonify({"error": "Unauthorized"}), 401
                 return f(*args, **kwargs)
             return wrapper
 

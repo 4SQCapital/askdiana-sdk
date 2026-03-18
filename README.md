@@ -17,23 +17,22 @@ pip install requests
 ### 1. Set up webhook handling
 
 ```python
+import os
 from flask import Flask, request, jsonify
-from askdiana import verify_webhook, WebhookVerificationError
+from askdiana import verify_bearer_token
 
 app = Flask(__name__)
-WEBHOOK_SECRET = "your-webhook-signing-secret"
+API_KEY = os.environ.get("ASKDIANA_API_KEY", "")
 
 @app.route("/webhooks", methods=["POST"])
 def handle_webhook():
     # Verify the request is from Ask DIANA
     try:
-        verify_webhook(
-            request_body=request.get_data(),
-            signature_header=request.headers.get("X-AskDiana-Signature", ""),
-            secret=WEBHOOK_SECRET,
-            timestamp_header=request.headers.get("X-AskDiana-Delivery-Timestamp"),
+        verify_bearer_token(
+            authorization_header=request.headers.get("Authorization", ""),
+            expected_key=API_KEY,
         )
-    except WebhookVerificationError as e:
+    except ValueError as e:
         return jsonify({"error": str(e)}), 401
 
     # Process the event
@@ -282,9 +281,8 @@ Both must include the required scope for the request to succeed.
 | `chat.created` | User creates a new chat | `webhooks.on_event` |
 
 Every webhook includes:
-- `X-AskDiana-Signature`: HMAC-SHA256 signature (`sha256=<hex>`)
+- `Authorization`: Bearer token (`Bearer askd_...`) — matches your `ASKDIANA_API_KEY`
 - `X-AskDiana-Event`: Event type string
-- `X-AskDiana-Delivery-Timestamp`: Unix epoch seconds
 
 ## Permission Scopes
 
@@ -295,7 +293,6 @@ Every webhook includes:
 | `chats:read` | List and read chats |
 | `chats:write` | Create and modify chats |
 | `user:profile` | Read user profile info |
-| `analytics:read` | Read analytics data |
 
 ## Examples
 
@@ -326,14 +323,11 @@ See the `examples/` directory:
 | `register_schema(install_id, version, schema)` | *(none)* | Register a table schema declaration |
 | `apply_schema(install_id, table_name)` | *(none)* | Create/update a registered table |
 
-### `verify_webhook(request_body, signature_header, secret, ...)`
+### `verify_bearer_token(authorization_header, expected_key)`
 
-Verifies HMAC-SHA256 signature. Raises `WebhookVerificationError` on failure.
+Verifies the Bearer token from Ask DIANA. Raises `ValueError` on failure.
 
 | Parameter | Description |
 |-----------|-------------|
-| `request_body` | Raw request body (bytes or str) |
-| `signature_header` | `X-AskDiana-Signature` header value |
-| `secret` | Your `WEBHOOK_SIGNING_SECRET` |
-| `tolerance_seconds` | Max webhook age (default: 300s, set `None` to disable) |
-| `timestamp_header` | `X-AskDiana-Delivery-Timestamp` header value |
+| `authorization_header` | `Authorization` header value (`Bearer askd_...`) |
+| `expected_key` | Your `ASKDIANA_API_KEY` |

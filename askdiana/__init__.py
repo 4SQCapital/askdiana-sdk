@@ -1,7 +1,7 @@
 """Ask DIANA Extension SDK."""
 
 from .client import AskDianaClient
-from .webhooks import verify_webhook, WebhookVerificationError
+from .webhooks import verify_bearer_token, verify_webhook, WebhookVerificationError
 from .models import (
     ExtModel,
     Field,
@@ -21,7 +21,8 @@ from .chat import ChatService
 
 __all__ = [
     "AskDianaClient",
-    "verify_webhook",
+    "verify_bearer_token",
+    "verify_webhook",  # deprecated — use verify_bearer_token
     "WebhookVerificationError",
     # Models
     "ExtModel",

@@ -209,8 +209,8 @@ class ConnectorService:
 
         Args:
             ext_app: The ExtensionApp instance.
-            verify_signature: If True, verify ``X-AskDiana-Signature``
-                on all connector routes.  Ensures only the Ask backend
+            verify_signature: If True, verify the ``Authorization: Bearer``
+                token on all connector routes.  Ensures only the Ask backend
                 (or other trusted callers) can invoke these endpoints.
                 Set to ``False`` for local development.
         """
@@ -229,36 +229,15 @@ class ConnectorService:
                 svc.client.base_url = base_url.rstrip("/")
 
         def _require_signature(f):
-            """Decorator that verifies webhook signature on connector routes.
-
-            For POST requests, verifies against the raw body.
-            For GET requests, verifies against a JSON-serialized dict
-            of query parameters (matching the proxy's signing approach).
-            """
+            """Decorator that verifies Bearer token on connector routes."""
             @wraps(f)
             def wrapper(*args, **kwargs):
                 if not verify_signature:
                     return f(*args, **kwargs)
-                if not _ext_app._webhook_secret:
-                    # No secret configured — skip verification
-                    return f(*args, **kwargs)
                 try:
-                    import json as _json
-                    from .webhooks import verify_webhook, WebhookVerificationError
-                    if flask_request.method == "GET":
-                        # For GET, the proxy signed json.dumps(params, sort_keys=True)
-                        params = dict(flask_request.args)
-                        body = _json.dumps(params, sort_keys=True, default=str)
-                    else:
-                        body = flask_request.get_data()
-                    verify_webhook(
-                        request_body=body,
-                        signature_header=flask_request.headers.get("X-AskDiana-Signature", ""),
-                        secret=_ext_app._webhook_secret,
-                        timestamp_header=flask_request.headers.get("X-AskDiana-Delivery-Timestamp"),
-                    )
-                except WebhookVerificationError as exc:
-                    logger.warning("Connector route signature verification failed: %s", exc)
+                    _ext_app.verify_request()
+                except Exception as exc:
+                    logger.warning("Bearer token verification failed: %s", exc)
                     return flask_jsonify({"error": "Unauthorized"}), 401
                 return f(*args, **kwargs)
             return wrapper

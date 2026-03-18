@@ -89,7 +89,7 @@ class GeminiChatService(ChatService):
         return "AI response text"
 ```
 
-`register_routes(app)` automatically wires up `POST /api/chat` with signature verification.
+`register_routes(app)` automatically wires up `POST /api/chat` with Bearer token verification.
 
 ### Built-in Helpers
 
