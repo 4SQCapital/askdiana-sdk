@@ -1,0 +1,266 @@
+"""
+Gamma Service — Gamma.app Presentation Generator for Ask DIANA
+
+Integrates with the Gamma.app public API to generate presentations,
+documents, webpages, and social posts directly from chat.
+"""
+
+import os
+import json
+import time
+import logging
+
+import requests
+
+from askdiana import ChatService
+
+logger = logging.getLogger(__name__)
+
+GAMMA_API_BASE = "https://public-api.gamma.app/v1.0"
+POLL_INTERVAL = 5 # seconds between status checks
+MAX_POLL_ATTEMPTS = 24  # 24 * 5s = 2 minutes max wait
+
+FORMAT_LABELS = {
+    "presentation": "Presentation",
+    "document": "Document",
+    "webpage": "Webpage",
+    "social": "Social Post",
+}
+
+
+def _rich(blocks: list) -> str:
+    """Wrap blocks in the rich_response envelope."""
+    return json.dumps({"type": "rich_response", "blocks": blocks})
+
+
+def _error(message: str) -> str:
+    """Return a rich_response with an error alert."""
+    return _rich([{"type": "alert", "variant": "error", "content": message}])
+
+
+class GammaChatService(ChatService):
+    """Gamma — presentation generator powered by Gamma.app."""
+
+    def respond(self, install_id, message, history=None, chat_id=None, **kwargs):
+        """Generate a Gamma presentation from the user's message."""
+
+        # 1. Get API key
+        api_key = self.get_api_key(install_id)
+        if not api_key:
+            api_key = os.environ.get("GAMMA_API_KEY")
+        if not api_key:
+            return _error(
+                "No Gamma API key configured. Please add your Gamma.app API key "
+                "in the extension settings (Account Settings > API Keys on gamma.app). "
+                "Requires a Pro, Ultra, Teams, or Business plan."
+            )
+
+        # 2. Get user preferences
+        fmt = self.get_config(install_id, "format", "presentation")
+        num_cards = int(self.get_config(install_id, "num_cards", 8))
+        export_format = self.get_config(install_id, "export_format", "pdf")
+        tone = self.get_config(install_id, "tone", "professional")
+        language = self.get_config(install_id, "language", "en")
+
+        # 3. Submit generation request
+        headers = {
+            "X-API-KEY": api_key,
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "inputText": message,
+            "textMode": "generate",
+            "format": fmt,
+            "numCards": num_cards,
+            "exportAs": export_format,
+            "textOptions": {
+                "amount": "medium",
+                "language": language,
+            },
+            "imageOptions": {
+                "source": "aiGenerated",
+            },
+        }
+
+        if tone:
+            payload["textOptions"]["tone"] = tone
+
+        try:
+            logger.info(
+                "Gamma generate: install=%s format=%s cards=%d",
+                install_id, fmt, num_cards,
+            )
+
+            resp = requests.post(
+                f"{GAMMA_API_BASE}/generations",
+                headers=headers,
+                json=payload,
+                timeout=30,
+            )
+
+            if resp.status_code not in (200, 201):
+                error_body = resp.text
+                logger.error("Gamma API error %d: %s", resp.status_code, error_body)
+                return _error(f"Gamma API error ({resp.status_code}): {error_body[:200]}")
+
+            gen_data = resp.json()
+            generation_id = gen_data.get("id") or gen_data.get("generationId")
+
+            if not generation_id:
+                return _error("Gamma API returned no generation ID. Please try again.")
+
+            # 4. Poll for completion
+            return self._poll_generation(headers, generation_id, fmt, export_format)
+
+        except requests.Timeout:
+            return _error("Gamma API request timed out. Please try again.")
+        except Exception as e:
+            logger.error("Gamma error for install %s: %s", install_id, e, exc_info=True)
+            return _error(f"Failed to generate: {str(e)}")
+
+    def _poll_generation(self, headers: dict, generation_id: str,
+                         fmt: str, export_format: str) -> str:
+        """Poll Gamma API until generation is complete or fails."""
+
+        for attempt in range(MAX_POLL_ATTEMPTS):
+            time.sleep(POLL_INTERVAL)
+
+            try:
+                resp = requests.get(
+                    f"{GAMMA_API_BASE}/generations/{generation_id}",
+                    headers=headers,
+                    timeout=15,
+                )
+
+                if resp.status_code not in (200, 201):
+                    logger.warning("Gamma poll %d: status=%d", attempt, resp.status_code)
+                    continue
+
+                data = resp.json()
+                status = data.get("status", "").lower()
+
+                if status == "completed":
+                    gamma_url = data.get("gammaUrl", "")
+                    export_url = data.get("exportUrl", "")
+                    thumbnail_url = data.get("thumbnailUrl", "")
+                    title = data.get("title", "")
+                    credits_info = data.get("credits", {})
+
+                    logger.info(
+                        "Gamma generation complete: id=%s url=%s data_keys=%s",
+                        generation_id, gamma_url, list(data.keys()),
+                    )
+
+                    return self._build_success_response(
+                        gamma_url, export_url, fmt, export_format,
+                        credits_info, thumbnail_url, title,
+                    )
+
+                elif status == "failed":
+                    error = data.get("error", "Unknown error")
+                    return _error(f"Gamma generation failed: {error}")
+
+                logger.debug("Gamma poll %d: status=%s", attempt, status)
+
+            except Exception as e:
+                logger.warning("Gamma poll error attempt %d: %s", attempt, e)
+                continue
+
+        return _error(
+            "Generation timed out after 2 minutes. "
+            "Please check your Gamma.app dashboard."
+        )
+
+    def _build_success_response(self, gamma_url: str, export_url: str,
+                                fmt: str, export_format: str,
+                                credits_info: dict,
+                                thumbnail_url: str = "",
+                                title: str = "") -> str:
+        """Build a rich_response with card + action buttons."""
+        format_label = FORMAT_LABELS.get(fmt, "Presentation")
+        export_label = export_format.upper()
+        display_title = title or f"Gamma {format_label}"
+
+        blocks = []
+
+        # Success alert
+        blocks.append({
+            "type": "alert",
+            "variant": "success",
+            "content": f"Your {format_label.lower()} is ready!",
+        })
+
+        # Thumbnail preview (if available)
+        if thumbnail_url:
+            blocks.append({
+                "type": "image",
+                "url": thumbnail_url,
+                "alt": display_title,
+                "caption": display_title,
+                "width": "full",
+            })
+
+        # Embed PDF via Google Docs viewer (works with any public PDF)
+        if export_url and export_format == "pdf":
+            viewer_url = f"https://docs.google.com/gview?url={export_url}&embedded=true"
+            blocks.append({
+                "type": "embed",
+                "url": viewer_url,
+                "title": display_title,
+                "description": "Generated via Gamma.app",
+                "aspect_ratio": "16:9",
+                "allow_fullscreen": True,
+            })
+        elif not thumbnail_url:
+            # Fallback card if no thumbnail and no PDF embed
+            card = {
+                "type": "card",
+                "title": display_title,
+                "subtitle": "Generated via Gamma.app",
+                "icon": "🎨",
+                "accent": "#8B5CF6",
+            }
+            if gamma_url:
+                card["url"] = gamma_url
+            blocks.append(card)
+
+        # Action buttons
+        buttons = []
+        if gamma_url:
+            buttons.append({
+                "label": "Open in Gamma",
+                "url": gamma_url,
+                "style": "primary",
+                "icon": "🎨",
+            })
+        if export_url:
+            buttons.append({
+                "label": f"Download {export_label}",
+                "url": export_url,
+                "style": "outline",
+                "icon": "📥",
+            })
+
+        if buttons:
+            blocks.append({"type": "buttons", "items": buttons})
+
+        # Credits info
+        if credits_info and credits_info.get("remaining") is not None:
+            blocks.append({
+                "type": "text",
+                "content": f"Credits remaining: **{credits_info['remaining']}**",
+                "style": "muted",
+            })
+
+        return _rich(blocks)
+
+    def on_install(self, install_id, data):
+        config = data.get("config", {})
+        for key in ("api_key", "format", "num_cards", "export_format", "tone", "language"):
+            if config.get(key):
+                self.set_config(install_id, key, config[key])
+        logger.info("Gamma extension installed: %s", install_id)
+
+    def on_uninstall(self, install_id, data):
+        logger.info("Gamma extension uninstalled: %s", install_id)
