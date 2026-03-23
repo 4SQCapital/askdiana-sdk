@@ -184,13 +184,6 @@ class GammaChatService(ChatService):
 
         blocks = []
 
-        # Success alert
-        blocks.append({
-            "type": "alert",
-            "variant": "success",
-            "content": f"Your {format_label.lower()} is ready!",
-        })
-
         # Thumbnail preview (if available)
         if thumbnail_url:
             blocks.append({
@@ -201,12 +194,12 @@ class GammaChatService(ChatService):
                 "width": "full",
             })
 
-        # Embed PDF via Google Docs viewer (works with any public PDF)
-        if export_url and export_format == "pdf":
-            viewer_url = f"https://docs.google.com/gview?url={export_url}&embedded=true"
+        # Embed via Gamma's own viewer (convert /docs/ to /embed/)
+        if gamma_url:
+            embed_url = gamma_url.replace("/docs/", "/embed/")
             blocks.append({
                 "type": "embed",
-                "url": viewer_url,
+                "url": embed_url,
                 "title": display_title,
                 "description": "Generated via Gamma.app",
                 "aspect_ratio": "16:9",
