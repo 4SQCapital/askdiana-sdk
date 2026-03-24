@@ -56,7 +56,8 @@ class ExtensionApp:
         Args:
             import_name: Passed to Flask (usually ``__name__``).
             api_key: Override ``ASKDIANA_API_KEY`` env var.
-            base_url: Override ``ASKDIANA_BASE_URL`` env var.
+            base_url: Platform URL (optional — resolved dynamically from
+                incoming requests if not provided).
             auto_discover: Scan ``models/`` and ``controllers/`` packages.
             models_package: Dotted path to models package.
             controllers_package: Dotted path to controllers package.
@@ -77,16 +78,16 @@ class ExtensionApp:
 
         # --- SDK client ---
         self._api_key = api_key or os.environ.get("ASKDIANA_API_KEY", "")
-        self._base_url = base_url or os.environ.get("ASKDIANA_BASE_URL", "https://app.askdiana.ai")
-        # webhook_secret is no longer used — auth is via ASKDIANA_API_KEY Bearer token
+        self._base_url = base_url or ""  # resolved dynamically from incoming requests
 
         self._verify_ssl = os.environ.get('ASKDIANA_VERIFY_SSL', 'true').lower() not in ('0', 'false', 'no')
         if not self._verify_ssl:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+        # Client created lazily on first incoming request via _apply_base_url()
         self.client: Optional[AskDianaClient] = None
-        if self._api_key:
+        if self._api_key and self._base_url:
             self.client = AskDianaClient(api_key=self._api_key, base_url=self._base_url, verify_ssl=self._verify_ssl)
 
         # --- Registries ---
@@ -179,7 +180,10 @@ class ExtensionApp:
         return {"registered": reg_result, "applied": apply_results}
 
     def run(self, host: str = "0.0.0.0", port: int = 5000, **kwargs):
-        """Run the Flask development server."""
+        """Run the Flask development server.
+
+        Use ``askdiana dev`` CLI to register with the platform before starting.
+        """
         self.flask.run(host=host, port=port, **kwargs)
 
     # ------------------------------------------------------------------ #

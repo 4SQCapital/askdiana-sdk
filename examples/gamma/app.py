@@ -5,10 +5,7 @@ Integrates with Gamma.app to generate beautiful presentations,
 documents, and webpages directly from chat messages.
 
 Run:
-    export ASKDIANA_API_KEY="askd_your_key"
-    export ASKDIANA_BASE_URL="https://app.askdiana.ai"
-    export GAMMA_API_KEY="your-gamma-api-key"
-    python app.py
+    askdiana dev --port 5004
 """
 
 import os

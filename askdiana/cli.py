@@ -4,18 +4,47 @@ CLI tool for Ask DIANA extensions.
 Usage::
 
     askdiana init my_extension
+    askdiana dev --port 5004
     askdiana scaffold model TaskTracker
     askdiana scaffold service task
     askdiana scaffold controller tasks
     askdiana db validate
     askdiana db schema
     askdiana db push --install-id <id> --version 1.0.0
+    askdiana deploy
 """
 
 import argparse
 import json
 import os
+import subprocess
 import sys
+
+# ------------------------------------------------------------------ #
+# Project config (.askdiana.json)                                      #
+# ------------------------------------------------------------------ #
+
+_CONFIG_FILE = ".askdiana.json"
+
+
+def _load_project_config() -> dict:
+    """Load .askdiana.json from the current directory. Returns empty dict if missing."""
+    config_path = os.path.join(os.getcwd(), _CONFIG_FILE)
+    if not os.path.exists(config_path):
+        return {}
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_project_config(config: dict):
+    """Write .askdiana.json to the current directory."""
+    config_path = os.path.join(os.getcwd(), _CONFIG_FILE)
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
 
 # ------------------------------------------------------------------ #
 # Templates                                                            #
@@ -83,7 +112,6 @@ MANIFEST_TEMPLATE = """{
 """
 
 ENV_TEMPLATE = """ASKDIANA_API_KEY=askd_your_key_here
-ASKDIANA_BASE_URL=https://app.askdiana.ai
 """
 
 MODELS_INIT = '''"""Extension models -- discovered automatically by ExtensionApp."""
@@ -171,6 +199,12 @@ def cmd_init(args):
     _write(os.path.join(base, "manifest.json"), MANIFEST_TEMPLATE % {"name": name, "slug": slug})
     _write(os.path.join(base, ".env.example"), ENV_TEMPLATE)
     _write(os.path.join(base, "requirements.txt"), "askdiana\nflask\npython-dotenv\n")
+    _write(os.path.join(base, ".gitignore"), ".env\n.askdiana.json\n__pycache__/\n*.pyc\n.venv/\n")
+    _write(os.path.join(base, ".askdiana.json"), json.dumps({
+        "platform_url": "https://app.askdiana.ai",
+        "extension_id": "",
+        "version_id": "",
+    }, indent=2) + "\n")
     _write(os.path.join(base, "models", "__init__.py"), MODELS_INIT)
     _write(os.path.join(base, "services", "__init__.py"), SERVICES_INIT)
     _write(os.path.join(base, "controllers", "__init__.py"), CONTROLLERS_INIT)
@@ -179,7 +213,88 @@ def cmd_init(args):
     print(f"Created extension project: {name}/")
     print(f"  cd {name}")
     print(f"  pip install askdiana[app]")
-    print(f"  python app.py")
+    print(f"  # Edit .askdiana.json with your platform URL and extension IDs")
+    print(f"  # Edit .env with your ASKDIANA_API_KEY")
+    print(f"  askdiana dev --port 5000")
+
+
+def cmd_dev(args):
+    """Start the extension in dev mode: register with platform + run Flask."""
+    port = args.port
+
+    # Load .env
+    env_path = os.path.join(os.getcwd(), ".env")
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=env_path, override=True)
+    except ImportError:
+        pass
+
+    # Load project config
+    config = _load_project_config()
+    platform_url = config.get("platform_url", "")
+    extension_id = config.get("extension_id", "")
+    version_id = config.get("version_id", "")
+
+    api_key = os.environ.get("ASKDIANA_API_KEY", "")
+    verify_ssl = os.environ.get("ASKDIANA_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
+
+    if not api_key:
+        print("Error: ASKDIANA_API_KEY is required in .env", file=sys.stderr)
+        sys.exit(1)
+    if not platform_url:
+        print(f"Error: platform_url is required in {_CONFIG_FILE}", file=sys.stderr)
+        sys.exit(1)
+
+    # Disable SSL warnings if needed
+    if not verify_ssl:
+        try:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        except ImportError:
+            pass
+
+    # Register with platform
+    webhook_url = f"http://localhost:{port}"
+    register_url = f"{platform_url.rstrip('/')}/api/ext/register"
+
+    print(f"Registering {webhook_url} with {platform_url}...")
+
+    try:
+        import requests
+        body = {"webhook_url": webhook_url}
+        if version_id:
+            body["version_id"] = version_id
+        resp = requests.post(
+            register_url,
+            json=body,
+            headers={"X-API-Key": api_key},
+            timeout=15,
+            verify=verify_ssl,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            print(f"  Registered! version_id={data.get('version_id', 'unknown')}")
+        else:
+            print(f"  Warning: registration failed ({resp.status_code}): {resp.text[:200]}", file=sys.stderr)
+            print("  Continuing anyway — the extension will start but may not receive requests.", file=sys.stderr)
+    except Exception as e:
+        print(f"  Warning: could not reach platform: {e}", file=sys.stderr)
+        print("  Continuing anyway — the extension will start but may not receive requests.", file=sys.stderr)
+
+    # Start the Flask app
+    print(f"\nStarting extension on port {port}...")
+    app_file = os.path.join(os.getcwd(), "app.py")
+    if not os.path.exists(app_file):
+        print(f"Error: app.py not found in {os.getcwd()}", file=sys.stderr)
+        sys.exit(1)
+
+    env = os.environ.copy()
+    env["PORT"] = str(port)
+    try:
+        subprocess.run([sys.executable, "app.py"], env=env)
+    except KeyboardInterrupt:
+        print("\nExtension stopped.")
 
 
 def cmd_scaffold(args):
@@ -408,10 +523,11 @@ def _cmd_db_push(args):
         load_dotenv(dotenv_path=env_path, override=True)
     except ImportError:
         print("Warning: python-dotenv not installed. Install it or export env vars manually.", file=sys.stderr)
+    config = _load_project_config()
     install_id = args.install_id or os.environ.get("ASKDIANA_INSTALL_ID", "")
     version = args.version or "1.0.0"
     api_key = os.environ.get("ASKDIANA_API_KEY", "")
-    base_url = os.environ.get("ASKDIANA_BASE_URL", "https://app.askdiana.ai")
+    base_url = config.get("platform_url", "") or os.environ.get("ASKDIANA_BASE_URL", "https://app.askdiana.ai")
 
     if not api_key:
         print("Error: ASKDIANA_API_KEY environment variable is required.", file=sys.stderr)
@@ -488,7 +604,7 @@ def _ensure_dir(path: str):
 
 # Files and directories to exclude from the package
 _PACKAGE_EXCLUDES = {
-    ".env.local", ".env.production",
+    ".env.local", ".env.production", ".askdiana.json",
     "__pycache__", ".git", ".venv", "venv", "env",
     "node_modules", ".mypy_cache", ".pytest_cache",
     ".DS_Store", "Thumbs.db",
@@ -575,11 +691,12 @@ def cmd_deploy(args):
     except ImportError:
         print("Warning: python-dotenv not installed. Install it or export env vars manually.", file=sys.stderr)
 
+    config = _load_project_config()
     api_key = os.environ.get("ASKDIANA_API_KEY", "")
-    base_url = os.environ.get("ASKDIANA_UPLOAD_URL", "") or os.environ.get("ASKDIANA_BASE_URL", "https://app.askdiana.ai")
+    base_url = config.get("platform_url", "") or os.environ.get("ASKDIANA_UPLOAD_URL", "") or os.environ.get("ASKDIANA_BASE_URL", "https://app.askdiana.ai")
     verify_ssl = os.environ.get("ASKDIANA_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
-    extension_id = args.extension_id or os.environ.get("ASKDIANA_EXTENSION_ID", "")
-    version_id = args.version_id or os.environ.get("ASKDIANA_VERSION_ID", "")
+    extension_id = args.extension_id or config.get("extension_id", "") or os.environ.get("ASKDIANA_EXTENSION_ID", "")
+    version_id = args.version_id or config.get("version_id", "") or os.environ.get("ASKDIANA_VERSION_ID", "")
 
     if not api_key:
         print("Error: ASKDIANA_API_KEY is required.", file=sys.stderr)
@@ -681,6 +798,9 @@ def main():
     init_p = sub.add_parser("init", help="Create a new extension project")
     init_p.add_argument("name", help="Extension name (used as directory name)")
 
+    dev_p = sub.add_parser("dev", help="Register with platform and start local dev server")
+    dev_p.add_argument("--port", type=int, default=5000, help="Port to run on (default: 5000)")
+
     scaffold_p = sub.add_parser("scaffold", help="Generate a model, service, or controller")
     scaffold_p.add_argument("kind", choices=["model", "service", "controller"])
     scaffold_p.add_argument("name", help="Name for the generated file/class")
@@ -705,6 +825,8 @@ def main():
 
     if args.command == "init":
         cmd_init(args)
+    elif args.command == "dev":
+        cmd_dev(args)
     elif args.command == "scaffold":
         cmd_scaffold(args)
     elif args.command == "db":
