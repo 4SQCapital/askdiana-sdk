@@ -221,12 +221,25 @@ class ConnectorService:
         _ext_app = ext_app
 
         def _apply_base_url(data):
-            """If the Ask backend passed askdiana_base_url, update the client."""
+            """If the Ask backend passed askdiana_base_url, update the client.
+
+            Also lazily creates the client if ASKDIANA_BASE_URL was not set at
+            startup — the backend sends it in every proxied request.
+            """
             base_url = None
             if isinstance(data, dict):
                 base_url = data.pop("askdiana_base_url", None)
             if base_url:
-                svc.client.base_url = base_url.rstrip("/")
+                if svc.client:
+                    svc.client.base_url = base_url.rstrip("/")
+                elif _ext_app and _ext_app._api_key:
+                    from .client import AskDianaClient
+                    svc.client = AskDianaClient(
+                        api_key=_ext_app._api_key,
+                        base_url=base_url.rstrip("/"),
+                        verify_ssl=_ext_app._verify_ssl,
+                    )
+                    _ext_app.client = svc.client
 
         def _require_signature(f):
             """Decorator that verifies Bearer token on connector routes."""

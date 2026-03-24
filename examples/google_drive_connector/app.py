@@ -10,11 +10,7 @@ A standalone Flask app that:
 Uses the SDK's ExtensionApp, ConnectorService, and Data API.
 
 Run:
-    export ASKDIANA_API_KEY="askd_your_key"
-    export ASKDIANA_BASE_URL="https://app.askdiana.ai"
-    export GOOGLE_CLIENT_ID="your-google-client-id"
-    export GOOGLE_CLIENT_SECRET="your-google-client-secret"
-    python app.py
+    askdiana dev --port 5004
 """
 
 import os
