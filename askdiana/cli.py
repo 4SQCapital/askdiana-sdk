@@ -101,10 +101,6 @@ MANIFEST_TEMPLATE = """{
   "description": "TODO: describe your extension",
   "short_description": "TODO: short description",
   "permissions": [],
-  "webhooks": {
-    "on_install": "https://<your-url>/webhooks/install",
-    "on_uninstall": "https://<your-url>/webhooks/uninstall"
-  },
   "pricing": {
     "model": "free"
   }
@@ -202,8 +198,6 @@ def cmd_init(args):
     _write(os.path.join(base, ".gitignore"), ".env\n.askdiana.json\n__pycache__/\n*.pyc\n.venv/\n")
     _write(os.path.join(base, ".askdiana.json"), json.dumps({
         "platform_url": "https://app.askdiana.ai",
-        "extension_id": "",
-        "version_id": "",
     }, indent=2) + "\n")
     _write(os.path.join(base, "models", "__init__.py"), MODELS_INIT)
     _write(os.path.join(base, "services", "__init__.py"), SERVICES_INIT)
@@ -213,13 +207,18 @@ def cmd_init(args):
     print(f"Created extension project: {name}/")
     print(f"  cd {name}")
     print(f"  pip install askdiana[app]")
-    print(f"  # Edit .askdiana.json with your platform URL and extension IDs")
+    print(f"  # Edit .askdiana.json with your platform URL")
     print(f"  # Edit .env with your ASKDIANA_API_KEY")
     print(f"  askdiana dev --port 5000")
 
 
 def cmd_dev(args):
-    """Start the extension in dev mode: register with platform + run Flask."""
+    """Start the extension in dev mode: register with platform + run Flask.
+
+    Only requires ASKDIANA_API_KEY in .env and platform_url in .askdiana.json.
+    The API key identifies the developer and extension — no extension_id or
+    version_id needed.
+    """
     port = args.port
 
     # Load .env
@@ -230,11 +229,9 @@ def cmd_dev(args):
     except ImportError:
         pass
 
-    # Load project config
+    # Load project config (only needs platform_url)
     config = _load_project_config()
     platform_url = config.get("platform_url", "")
-    extension_id = config.get("extension_id", "")
-    version_id = config.get("version_id", "")
 
     api_key = os.environ.get("ASKDIANA_API_KEY", "")
     verify_ssl = os.environ.get("ASKDIANA_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
@@ -254,7 +251,7 @@ def cmd_dev(args):
         except ImportError:
             pass
 
-    # Register with platform
+    # Register with platform (API key identifies the extension automatically)
     webhook_url = f"http://localhost:{port}"
     register_url = f"{platform_url.rstrip('/')}/api/ext/register"
 
@@ -262,12 +259,9 @@ def cmd_dev(args):
 
     try:
         import requests
-        body = {"webhook_url": webhook_url}
-        if version_id:
-            body["version_id"] = version_id
         resp = requests.post(
             register_url,
-            json=body,
+            json={"webhook_url": webhook_url},
             headers={"X-API-Key": api_key},
             timeout=15,
             verify=verify_ssl,
@@ -527,10 +521,13 @@ def _cmd_db_push(args):
     install_id = args.install_id or os.environ.get("ASKDIANA_INSTALL_ID", "")
     version = args.version or "1.0.0"
     api_key = os.environ.get("ASKDIANA_API_KEY", "")
-    base_url = config.get("platform_url", "") or os.environ.get("ASKDIANA_BASE_URL", "https://app.askdiana.ai")
+    base_url = config.get("platform_url", "")
 
     if not api_key:
         print("Error: ASKDIANA_API_KEY environment variable is required.", file=sys.stderr)
+        sys.exit(1)
+    if not base_url:
+        print(f"Error: platform_url is required in {_CONFIG_FILE}", file=sys.stderr)
         sys.exit(1)
     if not install_id:
         print("Error: --install-id is required (or set ASKDIANA_INSTALL_ID).", file=sys.stderr)
@@ -682,7 +679,12 @@ def cmd_package(args):
 
 
 def cmd_deploy(args):
-    """Package and upload to Ask DIANA for platform-hosted deployment."""
+    """Package and upload to Ask DIANA for platform-hosted deployment.
+
+    Only requires ASKDIANA_API_KEY in .env and platform_url in .askdiana.json.
+    The extension is identified by the slug + version in manifest.json.
+    No extension_id or version_id needed.
+    """
     # Load .env from the current working directory
     env_path = os.path.join(os.getcwd(), ".env")
     try:
@@ -693,19 +695,14 @@ def cmd_deploy(args):
 
     config = _load_project_config()
     api_key = os.environ.get("ASKDIANA_API_KEY", "")
-    base_url = config.get("platform_url", "") or os.environ.get("ASKDIANA_UPLOAD_URL", "") or os.environ.get("ASKDIANA_BASE_URL", "https://app.askdiana.ai")
+    base_url = config.get("platform_url", "") or os.environ.get("ASKDIANA_UPLOAD_URL", "")
     verify_ssl = os.environ.get("ASKDIANA_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
-    extension_id = args.extension_id or config.get("extension_id", "") or os.environ.get("ASKDIANA_EXTENSION_ID", "")
-    version_id = args.version_id or config.get("version_id", "") or os.environ.get("ASKDIANA_VERSION_ID", "")
 
     if not api_key:
-        print("Error: ASKDIANA_API_KEY is required.", file=sys.stderr)
+        print("Error: ASKDIANA_API_KEY is required in .env", file=sys.stderr)
         sys.exit(1)
-    if not extension_id:
-        print("Error: --extension-id is required (or set ASKDIANA_EXTENSION_ID).", file=sys.stderr)
-        sys.exit(1)
-    if not version_id:
-        print("Error: --version-id is required (or set ASKDIANA_VERSION_ID).", file=sys.stderr)
+    if not base_url:
+        print(f"Error: platform_url is required in {_CONFIG_FILE}", file=sys.stderr)
         sys.exit(1)
 
     # Package first
@@ -748,10 +745,10 @@ def cmd_deploy(args):
                 else:
                     zf.write(full_path, arc_name)
 
-    # Upload
+    # Upload via /api/marketplace/deploy (resolved by API key + manifest slug/version)
     import requests
 
-    url = f"{base_url}/api/marketplace/extensions/{extension_id}/versions/{version_id}/upload"
+    url = f"{base_url.rstrip('/')}/api/marketplace/deploy"
     print(f"Uploading to {base_url}...")
 
     with open(package_name, "rb") as f:
@@ -817,9 +814,7 @@ def main():
     pkg_p = sub.add_parser("package", help="Create a deployable zip package")
     pkg_p.add_argument("-o", "--output", help="Output filename (default: extension-<slug>-<version>.zip)")
 
-    deploy_p = sub.add_parser("deploy", help="Package and upload for platform-hosted deployment")
-    deploy_p.add_argument("--extension-id", help="Extension UUID (or set ASKDIANA_EXTENSION_ID)")
-    deploy_p.add_argument("--version-id", help="Version UUID (or set ASKDIANA_VERSION_ID)")
+    sub.add_parser("deploy", help="Package and upload for platform-hosted deployment")
 
     args = parser.parse_args()
 
