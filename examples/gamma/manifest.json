@@ -1,26 +1,70 @@
 {
   "name": "Gamma",
   "slug": "gamma",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "ai_ml",
   "description": "Generate beautiful presentations, documents, and webpages powered by Gamma.app. Just describe what you need in chat and get a polished, shareable presentation with a live link and export options (PDF, PPTX, PNG).",
   "short_description": "AI presentations via Gamma.app",
   "permissions": [
     "chats:read",
-    "chats:write"
+    "chats:write",
+    "ui:end_of_conversation"
   ],
   "webhooks": {
     "on_install": "http://localhost:5004/webhooks/install",
     "on_uninstall": "http://localhost:5004/webhooks/uninstall",
     "on_event": "http://localhost:5004/webhooks/events"
   },
-  "capabilities": {
-    "chat_respond": "/api/chat"
+  "capabilities": {},
+  "trigger": {
+    "intents": ["presentation", "report", "document", "summary", "slides", "deck"],
+    "output_modes": ["STRUCTURED"],
+    "description": "Create a presentation from this conversation"
   },
-  "chat_config": {
-    "display_name": "Gamma",
-    "color": "#8B5CF6",
-    "description": "Generate presentations, documents & webpages"
+  "parameters": [
+    {
+      "name": "format",
+      "type": "select",
+      "label": "Format",
+      "required": false,
+      "options": [
+        {"value": "presentation", "label": "Presentation"},
+        {"value": "document", "label": "Document"},
+        {"value": "webpage", "label": "Webpage"},
+        {"value": "social", "label": "Social Post"}
+      ],
+      "default": "presentation"
+    },
+    {
+      "name": "num_cards",
+      "type": "select",
+      "label": "Number of Slides",
+      "required": false,
+      "options": [
+        {"value": "4", "label": "4"},
+        {"value": "6", "label": "6"},
+        {"value": "8", "label": "8"},
+        {"value": "10", "label": "10"},
+        {"value": "15", "label": "15"}
+      ],
+      "default": "8"
+    },
+    {
+      "name": "export_format",
+      "type": "select",
+      "label": "Export Format",
+      "required": false,
+      "options": [
+        {"value": "pdf", "label": "PDF"},
+        {"value": "pptx", "label": "PowerPoint"},
+        {"value": "png", "label": "PNG"}
+      ],
+      "default": "pdf"
+    }
+  ],
+  "invocation": {
+    "url": "/api/invoke",
+    "result_type": "rich_response"
   },
   "pricing": {
     "model": "free"

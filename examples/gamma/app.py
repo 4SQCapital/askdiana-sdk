@@ -23,7 +23,7 @@ except ImportError:
 from flask import request, jsonify
 from askdiana import ExtensionApp
 
-from gamma_service import GammaChatService
+from gamma_service import GammaChatService, GammaInvokeService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -31,9 +31,12 @@ logger = logging.getLogger(__name__)
 # --- App setup ---
 app = ExtensionApp(__name__, auto_discover=False)
 
-# --- Chat Service ---
+# --- Chat Service (chat mode) ---
 gamma = GammaChatService(app.client)
 gamma.register_routes(app)
+
+# --- Invoke Service (post-conversation workflow) ---
+gamma_invoke = GammaInvokeService(app)
 
 
 # ================================================================

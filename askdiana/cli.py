@@ -251,6 +251,16 @@ def cmd_dev(args):
         except ImportError:
             pass
 
+    # Load manifest.json to send along with registration
+    manifest = None
+    manifest_path = os.path.join(os.getcwd(), "manifest.json")
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path, "r") as f:
+                manifest = json.load(f)
+        except Exception as e:
+            print(f"  Warning: could not read manifest.json: {e}", file=sys.stderr)
+
     # Register with platform (API key identifies the extension automatically)
     webhook_url = f"http://localhost:{port}"
     register_url = f"{platform_url.rstrip('/')}/api/ext/register"
@@ -259,9 +269,12 @@ def cmd_dev(args):
 
     try:
         import requests
+        register_payload = {"webhook_url": webhook_url}
+        if manifest:
+            register_payload["manifest"] = manifest
         resp = requests.post(
             register_url,
-            json={"webhook_url": webhook_url},
+            json=register_payload,
             headers={"X-API-Key": api_key},
             timeout=15,
             verify=verify_ssl,

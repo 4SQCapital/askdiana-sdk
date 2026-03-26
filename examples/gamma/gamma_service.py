@@ -11,6 +11,7 @@ import time
 import logging
 
 import requests
+from flask import request as flask_request, jsonify
 
 from askdiana import ChatService
 
@@ -257,3 +258,225 @@ class GammaChatService(ChatService):
 
     def on_uninstall(self, install_id, data):
         logger.info("Gamma extension uninstalled: %s", install_id)
+
+
+class GammaInvokeService:
+    """Handles POST /api/invoke — post-conversation workflow invocations.
+
+    The platform sends the full conversation context and user-selected
+    parameters.  Gamma generates a presentation from the AI's last response.
+    """
+
+    def __init__(self, ext_app):
+        self._app = ext_app
+        self._register_route()
+
+    def _register_route(self):
+        @self._app.flask.route("/api/invoke", methods=["POST"])
+        def _invoke():
+            self._app.verify_request()
+            body = flask_request.get_json() or {}
+            return self._handle_invoke(body)
+
+    def _handle_invoke(self, body: dict):
+        install_id = body.get("install_id", "")
+        params = body.get("parameters", {})
+        last_response = body.get("last_response", "")
+        title = body.get("title", "")
+        conversation = body.get("conversation", [])
+
+        # 1. Get API key — per-install config or env fallback
+        api_key = None
+        if self._app.client:
+            try:
+                cfg = self._app.client.get_config(install_id)
+                api_key = (cfg or {}).get("api_key")
+            except Exception:
+                pass
+        if not api_key:
+            api_key = os.environ.get("GAMMA_API_KEY")
+        if not api_key:
+            return jsonify({
+                "result_type": "rich_response",
+                "data": _rich([_alert_block(
+                    "No Gamma API key configured. Please add your key in extension settings."
+                )]),
+            }), 200
+
+        # 2. Resolve generation parameters (user params override defaults)
+        fmt = params.get("format", "presentation")
+        num_cards = int(params.get("num_cards", 8))
+        export_format = params.get("export_format", "pdf")
+
+        # Build input text from conversation context
+        input_text = self._build_input_text(title, last_response, conversation)
+
+        # 3. Submit to Gamma API
+        headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+        payload = {
+            "inputText": input_text,
+            "textMode": "generate",
+            "format": fmt,
+            "numCards": num_cards,
+            "exportAs": export_format,
+            "textOptions": {"amount": "medium", "language": "en"},
+            "imageOptions": {"source": "aiGenerated"},
+        }
+
+        try:
+            logger.info(
+                "Gamma invoke: install=%s format=%s cards=%d",
+                install_id, fmt, num_cards,
+            )
+            resp = requests.post(
+                f"{GAMMA_API_BASE}/generations",
+                headers=headers,
+                json=payload,
+                timeout=30,
+            )
+
+            if resp.status_code not in (200, 201):
+                return jsonify({
+                    "result_type": "rich_response",
+                    "data": _rich([_alert_block(
+                        f"Gamma API error ({resp.status_code}): {resp.text[:200]}"
+                    )]),
+                }), 200
+
+            gen_data = resp.json()
+            generation_id = gen_data.get("id") or gen_data.get("generationId")
+            if not generation_id:
+                return jsonify({
+                    "result_type": "rich_response",
+                    "data": _rich([_alert_block("Gamma returned no generation ID.")]),
+                }), 200
+
+            # 4. Poll for completion
+            result = self._poll_generation(headers, generation_id, fmt, export_format)
+            return jsonify({
+                "result_type": "rich_response",
+                "data": result,
+            }), 200
+
+        except requests.Timeout:
+            return jsonify({
+                "result_type": "rich_response",
+                "data": _rich([_alert_block("Gamma API request timed out.")]),
+            }), 200
+        except Exception as e:
+            logger.error("Gamma invoke error: %s", e, exc_info=True)
+            return jsonify({
+                "result_type": "rich_response",
+                "data": _rich([_alert_block(f"Failed to generate: {e}")]),
+            }), 200
+
+    @staticmethod
+    def _build_input_text(title: str, last_response: str, conversation: list) -> str:
+        """Build the text prompt sent to Gamma from conversation context."""
+        parts = []
+        if title:
+            parts.append(f"Title: {title}")
+        if last_response:
+            # Use the AI's last response as the main content
+            parts.append(last_response)
+        elif conversation:
+            # Fallback: concatenate the last few messages
+            recent = conversation[-4:]
+            for msg in recent:
+                role = msg.get("role", "user")
+                parts.append(f"[{role}] {msg.get('content', '')}")
+        return "\n\n".join(parts) if parts else "Generate a presentation"
+
+    def _poll_generation(self, headers: dict, generation_id: str,
+                         fmt: str, export_format: str) -> str:
+        """Poll Gamma API until generation completes."""
+        for attempt in range(MAX_POLL_ATTEMPTS):
+            time.sleep(POLL_INTERVAL)
+            try:
+                resp = requests.get(
+                    f"{GAMMA_API_BASE}/generations/{generation_id}",
+                    headers=headers,
+                    timeout=15,
+                )
+                if resp.status_code not in (200, 201):
+                    continue
+
+                data = resp.json()
+                status = data.get("status", "").lower()
+
+                if status == "completed":
+                    return self._build_success_response(data, fmt, export_format)
+                elif status == "failed":
+                    error = data.get("error", "Unknown error")
+                    return _rich([_alert_block(f"Generation failed: {error}")])
+
+            except Exception as e:
+                logger.warning("Gamma poll error attempt %d: %s", attempt, e)
+                continue
+
+        return _rich([_alert_block("Generation timed out after 2 minutes.")])
+
+    @staticmethod
+    def _build_success_response(data: dict, fmt: str, export_format: str) -> str:
+        """Build rich_response JSON from Gamma's completed generation."""
+        gamma_url = data.get("gammaUrl", "")
+        export_url = data.get("exportUrl", "")
+        thumbnail_url = data.get("thumbnailUrl", "")
+        title = data.get("title", "")
+        credits_info = data.get("credits", {})
+
+        format_label = FORMAT_LABELS.get(fmt, "Presentation")
+        export_label = export_format.upper()
+        display_title = title or f"Gamma {format_label}"
+
+        blocks = []
+
+        if thumbnail_url:
+            blocks.append({
+                "type": "image",
+                "url": thumbnail_url,
+                "alt": display_title,
+                "caption": display_title,
+                "width": "full",
+            })
+
+        if gamma_url:
+            embed_url = gamma_url.replace("/docs/", "/embed/")
+            blocks.append({
+                "type": "embed",
+                "url": embed_url,
+                "title": display_title,
+                "description": "Generated via Gamma.app",
+                "aspect_ratio": "16:9",
+                "allow_fullscreen": True,
+            })
+
+        buttons = []
+        if gamma_url:
+            buttons.append({
+                "label": "Open in Gamma",
+                "url": gamma_url,
+                "style": "primary",
+            })
+        if export_url:
+            buttons.append({
+                "label": f"Download {export_label}",
+                "url": export_url,
+                "style": "outline",
+            })
+        if buttons:
+            blocks.append({"type": "buttons", "items": buttons})
+
+        if credits_info and credits_info.get("remaining") is not None:
+            blocks.append({
+                "type": "text",
+                "content": f"Credits remaining: **{credits_info['remaining']}**",
+                "style": "muted",
+            })
+
+        return _rich(blocks)
+
+
+def _alert_block(message: str) -> dict:
+    """Build an error alert block."""
+    return {"type": "alert", "variant": "error", "content": message}
