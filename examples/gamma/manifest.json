@@ -1,7 +1,7 @@
 {
   "name": "Gamma",
   "slug": "gamma",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "type": "ai_ml",
   "description": "Generate beautiful presentations, documents, and webpages powered by Gamma.app. Just describe what you need in chat and get a polished, shareable presentation with a live link and export options (PDF, PPTX, PNG).",
   "short_description": "AI presentations via Gamma.app",
