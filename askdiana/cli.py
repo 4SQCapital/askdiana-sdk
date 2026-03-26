@@ -614,7 +614,8 @@ def _ensure_dir(path: str):
 
 # Files and directories to exclude from the package
 _PACKAGE_EXCLUDES = {
-    ".env.local", ".env.production", ".askdiana.json",
+    ".env", ".env.local", ".env.production", ".env.development",
+    ".askdiana.json",
     "__pycache__", ".git", ".venv", "venv", "env",
     "node_modules", ".mypy_cache", ".pytest_cache",
     ".DS_Store", "Thumbs.db",
@@ -674,7 +675,7 @@ def cmd_package(args):
             # Skip excluded directories
             dirs[:] = [d for d in dirs if d not in _PACKAGE_EXCLUDES]
             for fname in files:
-                if fname in _PACKAGE_EXCLUDES:
+                if fname in _PACKAGE_EXCLUDES or fname.startswith(".env"):
                     continue
                 if fname.endswith((".pyc", ".pyo")):
                     continue
@@ -744,19 +745,11 @@ def cmd_deploy(args):
         for root, dirs, files in os.walk(cwd):
             dirs[:] = [d for d in dirs if d not in _PACKAGE_EXCLUDES]
             for fname in files:
-                if fname in _PACKAGE_EXCLUDES or fname.endswith((".pyc", ".pyo")):
+                if fname in _PACKAGE_EXCLUDES or fname.startswith(".env") or fname.endswith((".pyc", ".pyo")):
                     continue
                 full_path = os.path.join(root, fname)
                 arc_name = os.path.relpath(full_path, cwd)
-                # Sanitize .env — strip SDK credentials, keep runtime vars
-                if fname == ".env":
-                    import tempfile as _tmp
-                    with _tmp.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as tmp:
-                        _sanitize_env_file(full_path, tmp.name)
-                        zf.write(tmp.name, arc_name)
-                    os.unlink(tmp.name)
-                else:
-                    zf.write(full_path, arc_name)
+                zf.write(full_path, arc_name)
 
     # Upload via /api/marketplace/deploy (resolved by API key + manifest slug/version)
     import requests
