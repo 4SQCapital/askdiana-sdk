@@ -1,0 +1,40 @@
+{
+  "name": "Dropbox Connector",
+  "slug": "dropbox-connector",
+  "version": "1.0.0",
+  "type": "connector",
+  "description": "Connect your Dropbox to import documents into Ask DIANA. Users authorize their Dropbox account via OAuth and can browse folders, select files, and sync them into their knowledge base.",
+  "short_description": "Import Dropbox documents into Ask DIANA",
+  "permissions": [
+    "documents:read",
+    "documents:write",
+    "user:profile"
+  ],
+  "capabilities": {
+    "auth_status": "/api/auth/status",
+    "auth_url": "/api/auth/url",
+    "auth_callback": "/api/auth/callback",
+    "auth_disconnect": "/api/auth/disconnect",
+    "list_files": "/api/files",
+    "sync": "/api/sync"
+  },
+  "pricing": {
+    "model": "one_time",
+    "price_cents": 499,
+    "currency": "usd"
+  },
+  "ui": {
+    "type": "schema",
+    "settings_form": {
+      "fields": [
+        {
+          "name": "root_folder_path",
+          "type": "text",
+          "label": "Root Folder Path",
+          "required": false,
+          "placeholder": "Leave empty to list from root (e.g. /Documents)"
+        }
+      ]
+    }
+  }
+}
