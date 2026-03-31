@@ -58,7 +58,7 @@ class GammaChatService(ChatService):
 
         # 2. Get user preferences
         fmt = self.get_config(install_id, "format", "presentation")
-        num_cards = int(self.get_config(install_id, "num_cards", 8))
+        num_caards = int(self.get_config(install_id, "num_cards", 8))
         export_format = self.get_config(install_id, "export_format", "pdf")
         tone = self.get_config(install_id, "tone", "professional")
         language = self.get_config(install_id, "language", "en")

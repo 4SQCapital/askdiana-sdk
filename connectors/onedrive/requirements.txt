@@ -1,0 +1,4 @@
+askdiana>=0.4.0
+flask>=2.0
+requests>=2.20
+python-dotenv>=0.19
