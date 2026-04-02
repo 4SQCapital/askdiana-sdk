@@ -234,7 +234,13 @@ def cmd_dev(args):
     platform_url = config.get("platform_url", "")
 
     api_key = os.environ.get("ASKDIANA_API_KEY", "")
-    verify_ssl = os.environ.get("ASKDIANA_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
+    # Check both env var and .askdiana.json for verify_ssl
+    verify_ssl_env = os.environ.get("ASKDIANA_VERIFY_SSL", "").lower()
+    verify_ssl_config = str(config.get("verify_ssl", "")).lower()
+    if verify_ssl_env in ("false", "0", "no") or verify_ssl_config in ("false", "0", "no"):
+        verify_ssl = False
+    else:
+        verify_ssl = True
 
     if not api_key:
         print("Error: ASKDIANA_API_KEY is required in .env", file=sys.stderr)
@@ -710,7 +716,10 @@ def cmd_deploy(args):
     config = _load_project_config()
     api_key = os.environ.get("ASKDIANA_API_KEY", "")
     base_url = config.get("platform_url", "") or os.environ.get("ASKDIANA_UPLOAD_URL", "")
-    verify_ssl = os.environ.get("ASKDIANA_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
+    # Check both env var and .askdiana.json for verify_ssl
+    _vs_env = os.environ.get("ASKDIANA_VERIFY_SSL", "").lower()
+    _vs_cfg = str(config.get("verify_ssl", "")).lower()
+    verify_ssl = not (_vs_env in ("false", "0", "no") or _vs_cfg in ("false", "0", "no"))
 
     if not api_key:
         print("Error: ASKDIANA_API_KEY is required in .env", file=sys.stderr)
