@@ -52,7 +52,21 @@ def on_install():
     install_id = data.get("install_id")
     config = data.get("config", {})
 
-    for key in ("api_key", "format", "num_cards", "export_format", "tone", "language"):
+    for key in (
+        "api_key",
+        "format",
+        "num_cards",
+        "export_format",
+        "tone",
+        "language",
+        "template_mode",
+        "template_id",
+        "template_name",
+        "model",
+        "content_amount",
+        "logo_url",
+        "brand_name",
+    ):
         if config.get(key):
             gamma.set_config(install_id, key, config[key])
 
@@ -83,6 +97,47 @@ def on_event():
 # ================================================================
 # Health Check
 # ================================================================
+
+@app.flask.route("/api/themes", methods=["GET"])
+def list_themes():
+    """Return workspace themes from Gamma API for the requesting install."""
+    app.verify_request()
+    install_id = request.args.get("install_id", "")
+
+    api_key = None
+    if app.client and install_id:
+        try:
+            cfg = app.client.get_config(install_id) or {}
+            api_key = cfg.get("api_key")
+        except Exception:
+            pass
+    if not api_key:
+        api_key = os.environ.get("GAMMA_API_KEY")
+    if not api_key:
+        return jsonify({"themes": [], "error": "No API key configured"}), 200
+
+    try:
+        import requests as _req
+        resp = _req.get(
+            "https://public-api.gamma.app/v1.0/themes",
+            headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+            timeout=10,
+        )
+        if resp.status_code not in (200, 201):
+            return jsonify({"themes": [], "error": f"Gamma API {resp.status_code}"}), 200
+        body = resp.json()
+        items = body if isinstance(body, list) else (body.get("themes") or body.get("data") or [])
+        themes = []
+        for item in items:
+            tid = str(item.get("id") or item.get("themeId") or "").strip()
+            name = str(item.get("name") or item.get("title") or tid).strip()
+            if tid:
+                themes.append({"value": tid, "label": name})
+        return jsonify({"themes": themes}), 200
+    except Exception as e:
+        logger.error("Failed to fetch Gamma themes: %s", e)
+        return jsonify({"themes": [], "error": str(e)}), 200
+
 
 @app.flask.route("/health", methods=["GET"])
 def health():

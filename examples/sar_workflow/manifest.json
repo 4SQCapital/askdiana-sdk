@@ -1,0 +1,50 @@
+{
+  "name": "SAR Workflow",
+  "slug": "sar-workflow",
+  "version": "1.0.0",
+  "type": "workflow",
+  "description": "Suspicious Activity Report (SAR) workflow extension for AML compliance. Triggered at the end of a conversation to generate a pre-populated SAR form from the analyst's review.",
+  "short_description": "AML compliance — file Suspicious Activity Reports",
+  "permissions": [
+    "chats:read",
+    "ui:end_of_conversation"
+  ],
+  "webhooks": {
+    "on_install": "http://localhost:5005/webhooks/install",
+    "on_uninstall": "http://localhost:5005/webhooks/uninstall",
+    "on_event": "http://localhost:5005/webhooks/events"
+  },
+  "capabilities": {},
+  "trigger": {
+    "intents": ["sar", "suspicious", "compliance", "aml", "flag", "report", "investigation"],
+    "output_modes": ["STRUCTURED"],
+    "description": "File a Suspicious Activity Report from this conversation"
+  },
+  "parameters": [
+    {
+      "name": "priority",
+      "type": "select",
+      "label": "Priority",
+      "required": false,
+      "options": [
+        {"value": "urgent", "label": "Urgent"},
+        {"value": "high", "label": "High"},
+        {"value": "medium", "label": "Medium"},
+        {"value": "low", "label": "Low"}
+      ],
+      "default": "high"
+    }
+  ],
+  "invocation": {
+    "url": "/api/invoke",
+    "result_type": "redirect"
+  },
+  "pricing": {
+    "model": "free"
+  },
+  "ui": {
+    "type": "iframe",
+    "url": "http://localhost:5005/ui",
+    "height": "700px"
+  }
+}
