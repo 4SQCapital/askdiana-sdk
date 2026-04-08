@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SAR Extension</title>
+  <script>
+    /*  ================================================================
+        CONFIGURATION BLOCK
+        ----------------------------------------------------------------
+        Change the values below to re-skin this extension panel for a
+        different company or workflow.  Everything outside this block is
+        generic and should not need editing.
+        ================================================================ */
+
+    const CONFIG = {
+      /* ---- Re-skin switches: update only this block for a new client/workflow ---- */
+      branding: {
+        companyName: "TerraPay",
+        companyLogoMarkup: `<svg width="150" height="30" viewBox="0 0 150 30" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="TerraPay">
+          <rect x="1" y="1" width="28" height="28" rx="8" fill="#00B398"/>
+          <path d="M8 15l4 4 10-10" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+          <text x="37" y="20.5" font-family="'Segoe UI',Roboto,Arial,sans-serif" font-size="19" font-weight="700" fill="#FFFFFF">Terra<tspan fill="#00B398">Pay</tspan></text>
+        </svg>`
+      },
+      formMeta: {
+        documentTypeName: "Suspicious Activity Report",
+        formTitle: "Suspicious Activity Report (SAR)",
+        formSubtitle: "AML Compliance Workflow",
+        referencePrefix: "SAR",
+        referenceLabel: "SAR Reference",
+        submitButtonLabel: "Submit Report",
+        saveDraftButtonLabel: "Save Draft",
+        submitEndpoint: "/api/sar/submit"
+      },
+      fieldLabels: {
+        subjectName: "Subject Name / Entity",
+        accountReference: "Account / Transaction Reference",
+        suspiciousDateRangeStart: "Activity Start Date",
+        suspiciousDateRangeEnd: "Activity End Date",
+        transactionAmounts: "Transaction Amount(s)",
+        suspiciousNatureSelect: "Nature of Suspicious Activity",
+        suspiciousNatureText: "Detailed Description / Narrative",
+        supportingDocs: "Referenced Documents",
+        analystName: "Analyst Name",
+        analystDate: "Date of Submission"
+      },
+
+      /* ---- Colour scheme ---- */
+      primaryColor:   "#00B398",     // Main brand colour (buttons, accents)
+      primaryDark:    "#009B84",     // Hover / pressed state
+      primaryLight:   "#E8F5F1",    // Light tint (badges, highlights)
+      headerBg:       "#1C2B3A",     // Header bar background
+      headerText:     "#FFFFFF",     // Header bar text
+      dangerColor:    "#DC3545",     // Validation / required indicators
+
+      /* ---- Suspicious-activity type options (dropdown) ---- */
+      activityTypes: [
+        "Structuring / Smurfing",
+        "Layering of Funds",
+        "Unusual Transaction Pattern",
+        "Shell Company Activity",
+        "Sanctions Concern",
+        "Identity Fraud / Synthetic ID",
+        "Rapid Movement of Funds",
+        "Trade-Based Money Laundering",
+        "Other"
+      ],
+
+      /* ---- Priority options ---- */
+      priorityLevels: [
+        { value: "urgent",  label: "Urgent"  },
+        { value: "high",    label: "High"    },
+        { value: "medium",  label: "Medium"  },
+        { value: "low",     label: "Low"     }
+      ]
+    };
+
+    /*  ================================================================
+        CONVERSATION CONTEXT
+        ----------------------------------------------------------------
+        When served by the Flask backend, this is injected from the
+        invoke payload.  When opened standalone (file://), falls back
+        to demo mock data.
+        ================================================================ */
+
+    const CONTEXT = (function () {
+      try {
+        // Injected by Flask's render_template — Jinja2 placeholder.
+        // When served by Flask, this becomes real JSON.
+        // When opened as a static file, the literal string stays and JSON.parse fails,
+        // falling through to the mock data below.
+        var injected = '{{ context_json | default("null") | safe }}';
+        var parsed = JSON.parse(injected);
+        if (parsed) return parsed;
+      } catch (_) { /* fall through to mock */ }
+
+      // Standalone / file:// fallback — demo mock data
+      return {
+        subject_name:        "Meridian Holdings Ltd.",
+        account_reference:   "TXN-4820193-MHL",
+        activity_start_date: "2026-01-15",
+        activity_end_date:   "2026-03-28",
+        transaction_amounts: "$142,500.00; $89,300.00; $67,200.00",
+        currency:            "USD",
+        activity_type:       "Unusual Transaction Pattern",
+        narrative:           "Multiple high-value cross-border transfers identified between Meridian Holdings Ltd. (Singapore) and three shell entities in jurisdictions with weak AML controls. Transactions were split into amounts just below the $150,000 reporting threshold over a 10-week period. Funds were routed through correspondent accounts in two intermediary banks before settling in a newly opened account with no prior transaction history. Pattern consistent with layering and structuring to evade detection.",
+        supporting_docs: [
+          "Transaction_Ledger_Q1_2026.pdf",
+          "KYC_Profile_Meridian_Holdings.docx",
+          "SWIFT_Messages_Jan-Mar_2026.csv",
+          "Sanctions_Screening_Result.pdf"
+        ],
+        priority: "high"
+      };
+    })();
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
+    /* ---- Reset & base ---- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Manrope", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(0,179,152,.18), transparent 35%),
+        radial-gradient(circle at 100% 100%, rgba(0,179,152,.12), transparent 40%),
+        #0B1320;
+      color: #EAF3FF;
+      font-size: 14px;
+      line-height: 1.55;
+      min-height: 100vh;
+    }
+
+    /* ---- Header bar ---- */
+    .ext-header {
+      background: linear-gradient(90deg, #15263B 0%, var(--header-bg) 100%);
+      color: var(--header-text);
+      padding: 16px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      box-shadow: 0 10px 30px rgba(3,8,18,.35);
+    }
+    .ext-header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .ext-header-divider {
+      width: 1px;
+      height: 24px;
+      background: rgba(255,255,255,.25);
+    }
+    .ext-header-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: .1px;
+      opacity: .95;
+    }
+    .ext-header-subtitle {
+      font-size: 11px;
+      opacity: .72;
+      margin-top: 2px;
+    }
+    .ext-header-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 11px;
+      border-radius: 20px;
+      background: var(--primary);
+      color: #fff;
+      letter-spacing: .2px;
+    }
+
+    /* ---- Page container ---- */
+    .ext-container {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 28px 20px 52px;
+    }
+
+    /* ---- Reference bar ---- */
+    .ref-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .ref-number {
+      font-size: 13px;
+      font-weight: 700;
+      color: #9BB3CE;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      background: rgba(18,31,48,.92);
+      padding: 8px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.1);
+    }
+    .ref-date {
+      font-size: 12px;
+      color: #9BB3CE;
+    }
+
+    /* ---- Section card ---- */
+    .section {
+      background: linear-gradient(180deg, rgba(19,34,53,.95) 0%, rgba(14,25,40,.95) 100%);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 16px;
+      padding: 22px 24px;
+      margin-bottom: 16px;
+      box-shadow: 0 14px 28px rgba(2,8,20,.22);
+      transition: box-shadow .15s, transform .15s, border-color .15s;
+    }
+    .section:hover {
+      box-shadow: 0 18px 34px rgba(2,8,20,.35);
+      transform: translateY(-1px);
+      border-color: rgba(0,179,152,.42);
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    .section-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(0,179,152,.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #EAF3FF;
+    }
+    .section-subtitle {
+      font-size: 11px;
+      color: #98AEC8;
+      margin-top: 1px;
+    }
+
+    /* ---- Form layout ---- */
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .form-row.single {
+      grid-template-columns: 1fr;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+    }
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #AFC3DA;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+    }
+    .form-label .required {
+      color: var(--danger);
+      margin-left: 2px;
+    }
+
+    .form-input,
+    .form-select,
+    .form-textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 10px;
+      font-size: 13.5px;
+      font-family: inherit;
+      color: #EAF3FF;
+      background: rgba(9,17,29,.72);
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .form-input:focus,
+    .form-select:focus,
+    .form-textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(0,179,152,.12);
+      background: rgba(9,17,29,.95);
+    }
+    .form-input:read-only {
+      background: rgba(255,255,255,.06);
+      color: #9DB0C6;
+      cursor: default;
+    }
+    .form-textarea {
+      min-height: 110px;
+      resize: vertical;
+      line-height: 1.6;
+    }
+    .form-select {
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2364748B' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 5.5l6.5 6.5 6.5-6.5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 32px;
+    }
+    .form-input::placeholder,
+    .form-textarea::placeholder {
+      color: #7F97B3;
+    }
+    .form-select option {
+      color: #1B2E45;
+      background: #FFFFFF;
+    }
+    .form-hint {
+      font-size: 11px;
+      color: #8FA5BF;
+      margin-top: 4px;
+    }
+
+    /* ---- Document chips ---- */
+    .doc-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .doc-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: rgba(0,179,152,.14);
+      border: 1px solid rgba(0,179,152,.34);
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #D9FFF8;
+      transition: background .12s;
+    }
+    .doc-chip:hover {
+      background: rgba(0,179,152,.22);
+    }
+    .doc-chip-icon {
+      font-size: 13px;
+      opacity: .7;
+    }
+    .doc-chip-remove {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(0,0,0,.08);
+      color: #ACC1D8;
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      line-height: 1;
+      transition: background .12s;
+    }
+    .doc-chip-remove:hover {
+      background: rgba(220,53,69,.15);
+      color: var(--danger);
+    }
+
+    /* ---- Attestation ---- */
+    .attestation-box {
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-top: 12px;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .checkbox-row input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin-top: 1px;
+      accent-color: var(--primary);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .checkbox-label {
+      font-size: 12.5px;
+      color: #AAC0D8;
+      line-height: 1.5;
+    }
+
+    /* ---- Actions bar ---- */
+    .actions-bar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,.1);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 10px 22px;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 10px;
+      background: rgba(20,34,53,.78);
+      color: #D8E6F4;
+      font-size: 13.5px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .btn:hover {
+      background: rgba(27,46,70,.9);
+      border-color: rgba(0,179,152,.5);
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: #FFFFFF;
+      border-color: var(--primary);
+    }
+    .btn-primary:hover {
+      background: var(--primary-dark);
+      border-color: var(--primary-dark);
+    }
+    .btn-primary:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+    .btn-icon {
+      font-size: 15px;
+    }
+
+    /* ---- Toast notification ---- */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 14px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      box-shadow: 0 8px 24px rgba(0,0,0,.18);
+      transform: translateY(120%);
+      opacity: 0;
+      transition: all .3s cubic-bezier(.4,0,.2,1);
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .toast.visible {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    .toast.success { background: #059669; }
+    .toast.info    { background: #1C2B3A; }
+    .toast.error   { background: #DC3545; }
+
+    /* ---- Success overlay ---- */
+    .success-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 400;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(3px);
+    }
+    .success-overlay.visible {
+      display: flex;
+    }
+    .success-card {
+      background: linear-gradient(180deg, #172940 0%, #122136 100%);
+      border-radius: 16px;
+      padding: 40px 48px;
+      text-align: center;
+      max-width: 420px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.2);
+      animation: scaleIn .35s cubic-bezier(.4,0,.2,1);
+    }
+    @keyframes scaleIn {
+      from { transform: scale(.9); opacity: 0; }
+      to   { transform: scale(1);  opacity: 1; }
+    }
+    .success-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: var(--primary-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+      font-size: 28px;
+    }
+    .success-card h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #EAF3FF;
+      margin-bottom: 8px;
+    }
+    .success-card p {
+      font-size: 13px;
+      color: #AFC4D9;
+      margin-bottom: 4px;
+    }
+    .success-ref {
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-weight: 700;
+      color: var(--primary);
+      font-size: 15px;
+    }
+    .success-card .btn {
+      margin-top: 20px;
+    }
+
+    /* ---- Validation ---- */
+    .form-input.invalid,
+    .form-select.invalid,
+    .form-textarea.invalid {
+      border-color: var(--danger);
+      box-shadow: 0 0 0 3px rgba(220,53,69,.1);
+    }
+
+    /* ---- Responsive ---- */
+    @media (max-width: 600px) {
+      .ext-header { padding: 12px 16px; }
+      .ext-container { padding: 16px 12px 32px; }
+      .section { padding: 16px; }
+      .form-row { grid-template-columns: 1fr; }
+      .actions-bar { flex-direction: column; }
+      .actions-bar .btn { width: 100%; }
+      .success-card { margin: 16px; padding: 28px 24px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="ext-header" id="extHeader">
+    <div class="ext-header-left">
+      <div id="companyLogo"></div>
+      <div class="ext-header-divider"></div>
+      <div>
+        <div class="ext-header-title" id="headerTitle"></div>
+        <div class="ext-header-subtitle" id="headerSubtitle"></div>
+      </div>
+    </div>
+    <span class="ext-header-badge">AskDiana Extension</span>
+  </header>
+
+  <!-- Main form -->
+  <div class="ext-container">
+    <!-- Reference bar -->
+    <div class="ref-bar">
+      <span class="ref-number" id="refNumber"></span>
+      <span class="ref-date" id="refDate"></span>
+    </div>
+
+    <!-- Section 1 — Report Information -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon">&#x1F4CB;</div>
+        <div>
+          <div class="section-title">Report Information</div>
+          <div class="section-subtitle">Auto-generated reference and filing details</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" id="labelReference"></label>
+          <input class="form-input" id="sarReference" readonly />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Priority Level <span class="required">*</span></label>
+          <select class="form-select" id="priority"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Filing Date</label>
+          <input class="form-input" id="filingDate" type="date" readonly />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Currency</label>
+          <input class="form-input" id="currency" readonly />
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 2 — Subject Information -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon">&#x1F464;</div>
+        <div>
+          <div class="section-title">Subject Information</div>
+          <div class="section-subtitle">Entity or individual under review</div>
+        </div>
+      </div>
+      <div class="form-row single">
+        <div class="form-group">
+          <label class="form-label" id="labelSubjectName"><span class="required">*</span></label>
+          <input class="form-input" id="subjectName" placeholder="Name of subject or entity" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" id="labelAccountRef"><span class="required">*</span></label>
+          <input class="form-input" id="accountRef" placeholder="e.g. TXN-00000-XXX" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" id="labelActivityStart"><span class="required">*</span></label>
+          <input class="form-input" type="date" id="activityStart" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" id="labelActivityEnd"><span class="required">*</span></label>
+          <input class="form-input" type="date" id="activityEnd" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 3 — Transaction Details -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon">&#x1F4B0;</div>
+        <div>
+          <div class="section-title">Transaction Details</div>
+          <div class="section-subtitle">Amounts and nature of flagged activity</div>
+        </div>
+      </div>
+      <div class="form-row single">
+        <div class="form-group">
+          <label class="form-label" id="labelAmounts"><span class="required">*</span></label>
+          <input class="form-input" id="amounts" placeholder="e.g. $100,000; $50,000" />
+          <span class="form-hint">Separate multiple amounts with semicolons</span>
+        </div>
+      </div>
+      <div class="form-row single">
+        <div class="form-group">
+          <label class="form-label" id="labelActivityType"><span class="required">*</span></label>
+          <select class="form-select" id="activityType"></select>
+        </div>
+      </div>
+      <div class="form-row single">
+        <div class="form-group">
+          <label class="form-label" id="labelNarrative"><span class="required">*</span></label>
+          <textarea class="form-textarea" id="narrative" placeholder="Describe the suspicious activity, including who is involved, what occurred, the timeline, and why it raises concern..."></textarea>
+          <span class="form-hint">Provide a factual account — avoid speculation or legal conclusions</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 4 — Supporting Evidence -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon">&#x1F4CE;</div>
+        <div>
+          <div class="section-title">Supporting Evidence</div>
+          <div class="section-subtitle">Documents referenced during the conversation</div>
+        </div>
+      </div>
+      <div class="form-row single">
+        <div class="form-group">
+          <label class="form-label" id="labelSupportingDocs"></label>
+          <div class="doc-chips" id="docChips"></div>
+        </div>
+      </div>
+      <div class="form-row single" style="margin-top: 8px;">
+        <div class="form-group">
+          <label class="form-label">Additional Notes</label>
+          <textarea class="form-textarea" id="additionalNotes" placeholder="Any supplementary information not captured above..." style="min-height: 70px;"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 5 — Analyst Attestation -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon">&#x270D;&#xFE0F;</div>
+        <div>
+          <div class="section-title">Analyst Attestation</div>
+          <div class="section-subtitle">Confirm and sign off on this report</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" id="labelAnalystName"><span class="required">*</span></label>
+          <input class="form-input" id="analystName" placeholder="Your full name" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" id="labelSubmissionDate"></label>
+          <input class="form-input" type="date" id="submissionDate" readonly />
+        </div>
+      </div>
+      <div class="attestation-box">
+        <div class="checkbox-row">
+          <input type="checkbox" id="attestCheckbox" />
+          <label class="checkbox-label" for="attestCheckbox">
+            I confirm that the information provided in this report is accurate and complete to the best of my knowledge.
+            I understand that this Suspicious Activity Report will be filed in accordance with applicable AML/CFT regulations and that the details herein may be shared with relevant regulatory authorities.
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="actions-bar">
+      <button class="btn" id="btnDraft" onclick="saveDraft()">
+        <span class="btn-icon">&#x1F4BE;</span> <span id="saveDraftText"></span>
+      </button>
+      <button class="btn btn-primary" id="btnSubmit" onclick="submitReport()">
+        <span class="btn-icon">&#x1F4E4;</span> <span id="submitButtonText"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Success overlay -->
+  <div class="success-overlay" id="successOverlay">
+    <div class="success-card">
+      <div class="success-icon">&#x2713;</div>
+      <h2>Report Submitted</h2>
+      <p>Your SAR has been filed successfully.</p>
+      <p class="success-ref" id="successRef"></p>
+      <p style="margin-top:8px; font-size:12px; color:#94A3B8;">A confirmation has been sent to the compliance team.</p>
+      <button class="btn btn-primary" onclick="closeSuccess()" style="margin-top:20px;">Close</button>
+    </div>
+  </div>
+
+  <script>
+    /* ================================================================
+       INITIALISATION
+       ================================================================ */
+
+    // Get install_id from URL params (standard SDK pattern)
+    const params = new URLSearchParams(window.location.search);
+    const INSTALL_ID = params.get("install_id") || "";
+    const BASE = window.location.origin;
+
+    // Apply CSS custom properties from CONFIG
+    const root = document.documentElement;
+    root.style.setProperty("--primary",       CONFIG.primaryColor);
+    root.style.setProperty("--primary-dark",   CONFIG.primaryDark);
+    root.style.setProperty("--primary-light",  CONFIG.primaryLight);
+    root.style.setProperty("--header-bg",      CONFIG.headerBg);
+    root.style.setProperty("--header-text",    CONFIG.headerText);
+    root.style.setProperty("--danger",         CONFIG.dangerColor);
+
+    // Header
+    document.getElementById("companyLogo").innerHTML   = CONFIG.branding.companyLogoMarkup;
+    document.getElementById("headerTitle").textContent = CONFIG.formMeta.formTitle;
+    document.getElementById("headerSubtitle").textContent = CONFIG.formMeta.formSubtitle;
+    document.getElementById("labelReference").textContent = CONFIG.formMeta.referenceLabel;
+    document.getElementById("saveDraftText").textContent = CONFIG.formMeta.saveDraftButtonLabel;
+    document.getElementById("submitButtonText").textContent = CONFIG.formMeta.submitButtonLabel;
+
+    var required = '<span class="required">*</span>';
+    document.getElementById("labelSubjectName").innerHTML = CONFIG.fieldLabels.subjectName + " " + required;
+    document.getElementById("labelAccountRef").innerHTML = CONFIG.fieldLabels.accountReference + " " + required;
+    document.getElementById("labelActivityStart").innerHTML = CONFIG.fieldLabels.suspiciousDateRangeStart + " " + required;
+    document.getElementById("labelActivityEnd").innerHTML = CONFIG.fieldLabels.suspiciousDateRangeEnd + " " + required;
+    document.getElementById("labelAmounts").innerHTML = CONFIG.fieldLabels.transactionAmounts + " " + required;
+    document.getElementById("labelActivityType").innerHTML = CONFIG.fieldLabels.suspiciousNatureSelect + " " + required;
+    document.getElementById("labelNarrative").innerHTML = CONFIG.fieldLabels.suspiciousNatureText + " " + required;
+    document.getElementById("labelSupportingDocs").textContent = CONFIG.fieldLabels.supportingDocs;
+    document.getElementById("labelAnalystName").innerHTML = CONFIG.fieldLabels.analystName + " " + required;
+    document.getElementById("labelSubmissionDate").textContent = CONFIG.fieldLabels.analystDate;
+
+    // Generate reference number
+    const refId = CONFIG.formMeta.referencePrefix + "-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).substring(2, 6).toUpperCase();
+    document.getElementById("refNumber").textContent  = refId;
+    document.getElementById("sarReference").value      = refId;
+
+    // Dates
+    const today = new Date().toISOString().split("T")[0];
+    document.getElementById("filingDate").value      = today;
+    document.getElementById("submissionDate").value  = today;
+    document.getElementById("refDate").textContent   = "Filed " + new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+
+    // Priority dropdown
+    const prioritySel = document.getElementById("priority");
+    CONFIG.priorityLevels.forEach(function (p) {
+      var opt = document.createElement("option");
+      opt.value = p.value;
+      opt.textContent = p.label;
+      prioritySel.appendChild(opt);
+    });
+
+    // Activity type dropdown
+    const actTypeSel = document.getElementById("activityType");
+    CONFIG.activityTypes.forEach(function (t) {
+      var opt = document.createElement("option");
+      opt.value = t;
+      opt.textContent = t;
+      actTypeSel.appendChild(opt);
+    });
+
+    // ---- Pre-populate from conversation context ----
+    const ctx = CONTEXT;
+    document.getElementById("subjectName").value   = ctx.subject_name        || "";
+    document.getElementById("accountRef").value    = ctx.account_reference   || "";
+    document.getElementById("activityStart").value = ctx.activity_start_date || "";
+    document.getElementById("activityEnd").value   = ctx.activity_end_date   || "";
+    document.getElementById("amounts").value       = ctx.transaction_amounts || "";
+    document.getElementById("currency").value      = ctx.currency            || "USD";
+    document.getElementById("narrative").value     = ctx.narrative           || "";
+    prioritySel.value                              = ctx.priority            || "high";
+
+    if (ctx.activity_type) {
+      actTypeSel.value = ctx.activity_type;
+    }
+
+    // Supporting documents
+    var supportingDocs = (ctx.supporting_docs || []).slice();
+    renderDocChips();
+
+    function renderDocChips() {
+      var container = document.getElementById("docChips");
+      container.innerHTML = "";
+      var icons = { pdf: "\uD83D\uDCC4", docx: "\uD83D\uDCDD", csv: "\uD83D\uDCCA", xlsx: "\uD83D\uDCCA", png: "\uD83D\uDDBC\uFE0F", jpg: "\uD83D\uDDBC\uFE0F" };
+      supportingDocs.forEach(function (doc, i) {
+        var ext = doc.split(".").pop().toLowerCase();
+        var chip = document.createElement("span");
+        chip.className = "doc-chip";
+        chip.innerHTML =
+          '<span class="doc-chip-icon">' + (icons[ext] || "\uD83D\uDCCE") + '</span>' +
+          escapeHtml(doc) +
+          '<button class="doc-chip-remove" title="Remove" onclick="removeDoc(' + i + ')">&#215;</button>';
+        container.appendChild(chip);
+      });
+    }
+
+    function removeDoc(index) {
+      supportingDocs.splice(index, 1);
+      renderDocChips();
+    }
+
+    /* ================================================================
+       FORM ACTIONS
+       ================================================================ */
+
+    function gatherFormData() {
+      return {
+        reference:       document.getElementById("sarReference").value,
+        filingDate:      document.getElementById("filingDate").value,
+        priority:        document.getElementById("priority").value,
+        currency:        document.getElementById("currency").value,
+        subjectName:     document.getElementById("subjectName").value.trim(),
+        accountRef:      document.getElementById("accountRef").value.trim(),
+        activityStart:   document.getElementById("activityStart").value,
+        activityEnd:     document.getElementById("activityEnd").value,
+        amounts:         document.getElementById("amounts").value.trim(),
+        activityType:    document.getElementById("activityType").value,
+        narrative:       document.getElementById("narrative").value.trim(),
+        supportingDocs:  supportingDocs,
+        additionalNotes: document.getElementById("additionalNotes").value.trim(),
+        analystName:     document.getElementById("analystName").value.trim(),
+        submissionDate:  document.getElementById("submissionDate").value,
+        attested:        document.getElementById("attestCheckbox").checked,
+        installId:       INSTALL_ID
+      };
+    }
+
+    function validate() {
+      var data = gatherFormData();
+      var requiredFields = [
+        { id: "subjectName",  value: data.subjectName   },
+        { id: "accountRef",   value: data.accountRef    },
+        { id: "activityStart",value: data.activityStart },
+        { id: "activityEnd",  value: data.activityEnd   },
+        { id: "amounts",      value: data.amounts       },
+        { id: "narrative",    value: data.narrative      },
+        { id: "analystName",  value: data.analystName   }
+      ];
+
+      // Clear previous
+      document.querySelectorAll(".invalid").forEach(function (el) { el.classList.remove("invalid"); });
+
+      var valid = true;
+      requiredFields.forEach(function (f) {
+        if (!f.value) {
+          document.getElementById(f.id).classList.add("invalid");
+          valid = false;
+        }
+      });
+
+      if (!data.attested) {
+        showToast("Please confirm the attestation checkbox before submitting.", "error");
+        return false;
+      }
+
+      if (!valid) {
+        showToast("Please complete all required fields.", "error");
+        var first = document.querySelector(".invalid");
+        if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      return valid;
+    }
+
+    function saveDraft() {
+      var data = gatherFormData();
+      try {
+        localStorage.setItem("sar_draft_" + data.reference, JSON.stringify(data));
+        showToast("Draft saved \u2014 " + data.reference, "info");
+      } catch (e) {
+        showToast("Could not save draft.", "error");
+      }
+    }
+
+    function submitReport() {
+      if (!validate()) return;
+
+      var data = gatherFormData();
+      var btn = document.getElementById("btnSubmit");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-icon">&#x23F3;</span> Submitting\u2026';
+
+      // Post to backend if running under Flask, otherwise mock
+      var submitFn;
+      if (window.location.protocol !== "file:") {
+        submitFn = fetch(BASE + CONFIG.formMeta.submitEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        }).then(function (r) { return r.json(); });
+      } else {
+        submitFn = new Promise(function (resolve) {
+          setTimeout(function () { resolve({ ok: true }); }, 1500);
+        });
+      }
+
+      submitFn.then(function () {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">&#x1F4E4;</span> ' + escapeHtml(CONFIG.formMeta.submitButtonLabel);
+
+        document.getElementById("successRef").textContent = data.reference;
+        document.getElementById("successOverlay").classList.add("visible");
+
+        localStorage.removeItem("sar_draft_" + data.reference);
+      }).catch(function () {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">&#x1F4E4;</span> ' + escapeHtml(CONFIG.formMeta.submitButtonLabel);
+        showToast("Submission failed \u2014 please try again.", "error");
+      });
+    }
+
+    function closeSuccess() {
+      document.getElementById("successOverlay").classList.remove("visible");
+    }
+
+    /* ================================================================
+       UTILITIES
+       ================================================================ */
+
+    function showToast(message, type) {
+      var toast = document.getElementById("toast");
+      toast.className = "toast " + (type || "info");
+      toast.innerHTML = message;
+      void toast.offsetWidth;
+      toast.classList.add("visible");
+      setTimeout(function () { toast.classList.remove("visible"); }, 3000);
+    }
+
+    function escapeHtml(text) {
+      var div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

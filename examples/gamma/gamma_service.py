@@ -18,7 +18,7 @@ from askdiana import ChatService
 logger = logging.getLogger(__name__)
 
 GAMMA_API_BASE = "https://public-api.gamma.app/v1.0"
-POLL_INTERVAL = 5 # seconds between status checks
+POLL_INTERVAL = 5  # seconds between status checks
 MAX_POLL_ATTEMPTS = 24  # 24 * 5s = 2 minutes max wait
 
 FORMAT_LABELS = {
@@ -27,6 +27,11 @@ FORMAT_LABELS = {
     "webpage": "Webpage",
     "social": "Social Post",
 }
+VALID_FORMATS = set(FORMAT_LABELS.keys())
+VALID_EXPORT_FORMATS = {"pdf", "pptx", "png"}
+VALID_LANGUAGES = {"en", "ar", "fr", "es", "de", "zh", "ja", "ko"}
+VALID_CONTENT_AMOUNTS = {"brief", "medium", "detailed"}
+VALID_TEMPLATE_MODES = {"none", "manual", "auto_select"}
 
 
 def _rich(blocks: list) -> str:
@@ -37,6 +42,252 @@ def _rich(blocks: list) -> str:
 def _error(message: str) -> str:
     """Return a rich_response with an error alert."""
     return _rich([{"type": "alert", "variant": "error", "content": message}])
+
+
+def _safe_int(value, default: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _normalize_options(raw: dict, defaults: dict) -> dict:
+    """Normalize and validate generation options with safe fallbacks."""
+    opts = {
+        "format": (raw.get("format") or defaults.get("format") or "presentation").lower(),
+        "num_cards": _safe_int(raw.get("num_cards") or defaults.get("num_cards") or 8, 8),
+        "export_format": (raw.get("export_format") or defaults.get("export_format") or "pdf").lower(),
+        "tone": (raw.get("tone") if raw.get("tone") is not None else defaults.get("tone", "professional")),
+        "language": (raw.get("language") or defaults.get("language") or "en").lower(),
+        "template_mode": (raw.get("template_mode") or defaults.get("template_mode") or "none").lower(),
+        "template_id": (raw.get("template_id") or defaults.get("template_id") or "").strip(),
+        "template_name": (raw.get("template_name") or defaults.get("template_name") or "").strip(),
+        "model": (raw.get("model") or defaults.get("model") or "").strip(),
+        "content_amount": (raw.get("content_amount") or defaults.get("content_amount") or "medium").lower(),
+        "logo_url": (raw.get("logo_url") or defaults.get("logo_url") or "").strip(),
+        "brand_name": (raw.get("brand_name") or defaults.get("brand_name") or "").strip(),
+    }
+
+    if opts["format"] not in VALID_FORMATS:
+        opts["format"] = "presentation"
+    if opts["export_format"] not in VALID_EXPORT_FORMATS:
+        opts["export_format"] = "pdf"
+    if opts["language"] not in VALID_LANGUAGES:
+        opts["language"] = "en"
+    if opts["content_amount"] not in VALID_CONTENT_AMOUNTS:
+        opts["content_amount"] = "medium"
+    if opts["template_mode"] not in VALID_TEMPLATE_MODES:
+        opts["template_mode"] = "none"
+    if opts["num_cards"] < 1:
+        opts["num_cards"] = 1
+    if opts["num_cards"] > 25:
+        opts["num_cards"] = 25
+
+    return opts
+
+
+def _fetch_templates(headers: dict) -> list:
+    """Try known template endpoints and normalize the response."""
+    candidates = ("/templates", "/design-templates", "/user/templates")
+    for path in candidates:
+        try:
+            resp = requests.get(f"{GAMMA_API_BASE}{path}", headers=headers, timeout=15)
+            if resp.status_code not in (200, 201):
+                continue
+            body = resp.json()
+            items = body.get("templates") or body.get("items") or body.get("data") or []
+            results = []
+            for item in items:
+                template_id = str(item.get("id") or item.get("templateId") or "").strip()
+                name = str(item.get("name") or item.get("title") or template_id).strip()
+                if template_id:
+                    results.append({"id": template_id, "name": name})
+            if results:
+                return results
+        except Exception as e:
+            logger.debug("Template fetch failed at %s: %s", path, e)
+    return []
+
+
+def _resolve_template(headers: dict, options: dict) -> dict:
+    """Resolve template selection with precedence and fallback."""
+    manual_id = options.get("template_id", "")
+    mode = options.get("template_mode", "none")
+    preferred_name = options.get("template_name", "").lower()
+
+    if manual_id:
+        return {"id": manual_id, "name": options.get("template_name") or manual_id, "source": "manual"}
+    if mode != "auto_select":
+        return {}
+
+    templates = _fetch_templates(headers)
+    if not templates:
+        return {}
+
+    if preferred_name:
+        for t in templates:
+            if preferred_name in t["name"].lower():
+                return {"id": t["id"], "name": t["name"], "source": "auto_select"}
+
+    first = templates[0]
+    return {"id": first["id"], "name": first["name"], "source": "auto_select"}
+
+
+def _build_input_text(base_text: str, options: dict) -> str:
+    """Append optional branding instructions only when explicitly set."""
+    additions = []
+    if options.get("brand_name"):
+        additions.append(f"Use brand name '{options['brand_name']}' in the output.")
+    if options.get("logo_url"):
+        additions.append(f"If supported, apply this logo: {options['logo_url']}")
+    if options.get("template_name") and not options.get("template_id"):
+        additions.append(f"Prefer style similar to template '{options['template_name']}'.")
+
+    if not additions:
+        return base_text
+    return base_text + "\n\n" + "\n".join(additions)
+
+
+def _build_generation_payload(input_text: str, options: dict, template: dict) -> dict:
+    payload = {
+        "inputText": input_text,
+        "textMode": "generate",
+        "format": options["format"],
+        "numCards": options["num_cards"],
+        "exportAs": options["export_format"],
+        "textOptions": {
+            "amount": options["content_amount"],
+            "language": options["language"],
+        },
+        "imageOptions": {"source": "aiGenerated"},
+    }
+
+    if options.get("tone"):
+        payload["textOptions"]["tone"] = options["tone"]
+    if options.get("model"):
+        payload["model"] = options["model"]
+    if template.get("id"):
+        payload["templateId"] = template["id"]
+
+    return payload
+
+
+def _build_success_response(data: dict, fmt: str, export_format: str, context: dict = None) -> str:
+    gamma_url = data.get("gammaUrl", "")
+    export_url = data.get("exportUrl", "")
+    thumbnail_url = data.get("thumbnailUrl", "")
+    title = data.get("title", "")
+    format_label = FORMAT_LABELS.get(fmt, "Presentation")
+    export_label = export_format.upper()
+    display_title = title or f"Gamma {format_label}"
+
+    blocks = []
+
+    if thumbnail_url:
+        blocks.append({
+            "type": "image",
+            "url": thumbnail_url,
+            "alt": display_title,
+            "caption": display_title,
+            "width": "full",
+        })
+
+    if gamma_url:
+        embed_url = gamma_url.replace("/docs/", "/embed/")
+        blocks.append({
+            "type": "embed",
+            "url": embed_url,
+            "title": display_title,
+            "description": "Generated via Gamma.app",
+            "aspect_ratio": "16:9",
+            "allow_fullscreen": True,
+        })
+
+    buttons = []
+    if gamma_url:
+        buttons.append({
+            "label": "Open in Gamma",
+            "url": gamma_url,
+            "style": "primary",
+        })
+    if export_url:
+        buttons.append({
+            "label": f"Download {export_label}",
+            "url": export_url,
+            "style": "outline",
+        })
+    if buttons:
+        blocks.append({"type": "buttons", "items": buttons})
+
+    if context:
+        info_parts = []
+        if context.get("template_name"):
+            info_parts.append(f"Template: **{context['template_name']}**")
+        elif context.get("template_id"):
+            info_parts.append(f"Template ID: **{context['template_id']}**")
+        if context.get("model"):
+            info_parts.append(f"Model: **{context['model']}**")
+        if info_parts:
+            blocks.append({
+                "type": "text",
+                "content": " | ".join(info_parts),
+                "style": "muted",
+            })
+
+    return _rich(blocks)
+
+
+def _run_generation(headers: dict, payload: dict, options: dict, response_context: dict) -> str:
+    resp = requests.post(
+        f"{GAMMA_API_BASE}/generations",
+        headers=headers,
+        json=payload,
+        timeout=30,
+    )
+
+    if resp.status_code not in (200, 201):
+        error_body = resp.text
+        logger.error("Gamma API error %d: %s", resp.status_code, error_body)
+        return _error(f"Gamma API error ({resp.status_code}): {error_body[:200]}")
+
+    gen_data = resp.json()
+    generation_id = gen_data.get("id") or gen_data.get("generationId")
+    if not generation_id:
+        return _error("Gamma API returned no generation ID. Please try again.")
+
+    for attempt in range(MAX_POLL_ATTEMPTS):
+        time.sleep(POLL_INTERVAL)
+        try:
+            poll_resp = requests.get(
+                f"{GAMMA_API_BASE}/generations/{generation_id}",
+                headers=headers,
+                timeout=15,
+            )
+            if poll_resp.status_code not in (200, 201):
+                logger.warning("Gamma poll %d: status=%d", attempt, poll_resp.status_code)
+                continue
+
+            data = poll_resp.json()
+            status = data.get("status", "").lower()
+            if status == "completed":
+                logger.info("Gamma generation complete: id=%s", generation_id)
+                return _build_success_response(
+                    data,
+                    options["format"],
+                    options["export_format"],
+                    response_context,
+                )
+            if status == "failed":
+                error = data.get("error", "Unknown error")
+                return _error(f"Gamma generation failed: {error}")
+        except Exception as e:
+            logger.warning("Gamma poll error attempt %d: %s", attempt, e)
+            continue
+
+    return _error(
+        "Generation timed out after 2 minutes. "
+        "Please check your Gamma.app dashboard."
+    )
 
 
 class GammaChatService(ChatService):
@@ -56,63 +307,48 @@ class GammaChatService(ChatService):
                 "Requires a Pro, Ultra, Teams, or Business plan."
             )
 
-        # 2. Get user preferences
-        fmt = self.get_config(install_id, "format", "presentation")
-        num_caards = int(self.get_config(install_id, "num_cards", 8))
-        export_format = self.get_config(install_id, "export_format", "pdf")
-        tone = self.get_config(install_id, "tone", "professional")
-        language = self.get_config(install_id, "language", "en")
+        # 2. Resolve options
+        defaults = {
+            "format": self.get_config(install_id, "format", "presentation"),
+            "num_cards": self.get_config(install_id, "num_cards", 8),
+            "export_format": self.get_config(install_id, "export_format", "pdf"),
+            "tone": self.get_config(install_id, "tone", "professional"),
+            "language": self.get_config(install_id, "language", "en"),
+            "template_mode": self.get_config(install_id, "template_mode", "none"),
+            "template_id": self.get_config(install_id, "template_id", ""),
+            "template_name": self.get_config(install_id, "template_name", ""),
+            "model": self.get_config(install_id, "model", ""),
+            "content_amount": self.get_config(install_id, "content_amount", "medium"),
+            "logo_url": self.get_config(install_id, "logo_url", ""),
+            "brand_name": self.get_config(install_id, "brand_name", ""),
+        }
+        options = _normalize_options({}, defaults)
 
-        # 3. Submit generation request
+        # 3. Build payload with optional template + advanced controls
         headers = {
             "X-API-KEY": api_key,
             "Content-Type": "application/json",
         }
-
-        payload = {
-            "inputText": message,
-            "textMode": "generate",
-            "format": fmt,
-            "numCards": num_cards,
-            "exportAs": export_format,
-            "textOptions": {
-                "amount": "medium",
-                "language": language,
-            },
-            "imageOptions": {
-                "source": "aiGenerated",
-            },
+        template = _resolve_template(headers, options)
+        input_text = _build_input_text(message, options)
+        payload = _build_generation_payload(input_text, options, template)
+        response_context = {
+            "template_id": template.get("id", ""),
+            "template_name": template.get("name", ""),
+            "model": options.get("model", ""),
         }
-
-        if tone:
-            payload["textOptions"]["tone"] = tone
 
         try:
             logger.info(
-                "Gamma generate: install=%s format=%s cards=%d",
-                install_id, fmt, num_cards,
+                "Gamma generate: install=%s format=%s cards=%d template_mode=%s template=%s model=%s",
+                install_id,
+                options["format"],
+                options["num_cards"],
+                options["template_mode"],
+                template.get("id", ""),
+                options.get("model", ""),
             )
-
-            resp = requests.post(
-                f"{GAMMA_API_BASE}/generations",
-                headers=headers,
-                json=payload,
-                timeout=30,
-            )
-
-            if resp.status_code not in (200, 201):
-                error_body = resp.text
-                logger.error("Gamma API error %d: %s", resp.status_code, error_body)
-                return _error(f"Gamma API error ({resp.status_code}): {error_body[:200]}")
-
-            gen_data = resp.json()
-            generation_id = gen_data.get("id") or gen_data.get("generationId")
-
-            if not generation_id:
-                return _error("Gamma API returned no generation ID. Please try again.")
-
-            # 4. Poll for completion
-            return self._poll_generation(headers, generation_id, fmt, export_format)
+            return _run_generation(headers, payload, options, response_context)
 
         except requests.Timeout:
             return _error("Gamma API request timed out. Please try again.")
@@ -120,138 +356,23 @@ class GammaChatService(ChatService):
             logger.error("Gamma error for install %s: %s", install_id, e, exc_info=True)
             return _error(f"Failed to generate: {str(e)}")
 
-    def _poll_generation(self, headers: dict, generation_id: str,
-                         fmt: str, export_format: str) -> str:
-        """Poll Gamma API until generation is complete or fails."""
-
-        for attempt in range(MAX_POLL_ATTEMPTS):
-            time.sleep(POLL_INTERVAL)
-
-            try:
-                resp = requests.get(
-                    f"{GAMMA_API_BASE}/generations/{generation_id}",
-                    headers=headers,
-                    timeout=15,
-                )
-
-                if resp.status_code not in (200, 201):
-                    logger.warning("Gamma poll %d: status=%d", attempt, resp.status_code)
-                    continue
-
-                data = resp.json()
-                status = data.get("status", "").lower()
-
-                if status == "completed":
-                    gamma_url = data.get("gammaUrl", "")
-                    export_url = data.get("exportUrl", "")
-                    thumbnail_url = data.get("thumbnailUrl", "")
-                    title = data.get("title", "")
-                    credits_info = data.get("credits", {})
-
-                    logger.info(
-                        "Gamma generation complete: id=%s url=%s data_keys=%s",
-                        generation_id, gamma_url, list(data.keys()),
-                    )
-
-                    return self._build_success_response(
-                        gamma_url, export_url, fmt, export_format,
-                        credits_info, thumbnail_url, title,
-                    )
-
-                elif status == "failed":
-                    error = data.get("error", "Unknown error")
-                    return _error(f"Gamma generation failed: {error}")
-
-                logger.debug("Gamma poll %d: status=%s", attempt, status)
-
-            except Exception as e:
-                logger.warning("Gamma poll error attempt %d: %s", attempt, e)
-                continue
-
-        return _error(
-            "Generation timed out after 2 minutes. "
-            "Please check your Gamma.app dashboard."
-        )
-
-    def _build_success_response(self, gamma_url: str, export_url: str,
-                                fmt: str, export_format: str,
-                                credits_info: dict,
-                                thumbnail_url: str = "",
-                                title: str = "") -> str:
-        """Build a rich_response with card + action buttons."""
-        format_label = FORMAT_LABELS.get(fmt, "Presentation")
-        export_label = export_format.upper()
-        display_title = title or f"Gamma {format_label}"
-
-        blocks = []
-
-        # Thumbnail preview (if available)
-        if thumbnail_url:
-            blocks.append({
-                "type": "image",
-                "url": thumbnail_url,
-                "alt": display_title,
-                "caption": display_title,
-                "width": "full",
-            })
-
-        # Embed via Gamma's own viewer (convert /docs/ to /embed/)
-        if gamma_url:
-            embed_url = gamma_url.replace("/docs/", "/embed/")
-            blocks.append({
-                "type": "embed",
-                "url": embed_url,
-                "title": display_title,
-                "description": "Generated via Gamma.app",
-                "aspect_ratio": "16:9",
-                "allow_fullscreen": True,
-            })
-        elif not thumbnail_url:
-            # Fallback card if no thumbnail and no PDF embed
-            card = {
-                "type": "card",
-                "title": display_title,
-                "subtitle": "Generated via Gamma.app",
-                "icon": "🎨",
-                "accent": "#8B5CF6",
-            }
-            if gamma_url:
-                card["url"] = gamma_url
-            blocks.append(card)
-
-        # Action buttons
-        buttons = []
-        if gamma_url:
-            buttons.append({
-                "label": "Open in Gamma",
-                "url": gamma_url,
-                "style": "primary",
-                "icon": "🎨",
-            })
-        if export_url:
-            buttons.append({
-                "label": f"Download {export_label}",
-                "url": export_url,
-                "style": "outline",
-                "icon": "📥",
-            })
-
-        if buttons:
-            blocks.append({"type": "buttons", "items": buttons})
-
-        # Credits info
-        if credits_info and credits_info.get("remaining") is not None:
-            blocks.append({
-                "type": "text",
-                "content": f"Credits remaining: **{credits_info['remaining']}**",
-                "style": "muted",
-            })
-
-        return _rich(blocks)
-
     def on_install(self, install_id, data):
         config = data.get("config", {})
-        for key in ("api_key", "format", "num_cards", "export_format", "tone", "language"):
+        for key in (
+            "api_key",
+            "format",
+            "num_cards",
+            "export_format",
+            "tone",
+            "language",
+            "template_mode",
+            "template_id",
+            "template_name",
+            "model",
+            "content_amount",
+            "logo_url",
+            "brand_name",
+        ):
             if config.get(key):
                 self.set_config(install_id, key, config[key])
         logger.info("Gamma extension installed: %s", install_id)
@@ -304,70 +425,74 @@ class GammaInvokeService:
             }), 200
 
         # 2. Resolve generation parameters (user params override defaults)
-        fmt = params.get("format", "presentation")
-        num_cards = int(params.get("num_cards", 8))
-        export_format = params.get("export_format", "pdf")
+        defaults = {
+            "format": "presentation",
+            "num_cards": 8,
+            "export_format": "pdf",
+            "tone": "professional",
+            "language": "en",
+            "template_mode": "none",
+            "template_id": "",
+            "template_name": "",
+            "model": "",
+            "content_amount": "medium",
+            "logo_url": "",
+            "brand_name": "",
+        }
+        if self._app.client:
+            try:
+                cfg = self._app.client.get_config(install_id) or {}
+                defaults.update(cfg)
+            except Exception:
+                pass
+        options = _normalize_options(params, defaults)
 
         # Build input text from conversation context
         input_text = self._build_input_text(title, last_response, conversation)
+        input_text = _build_input_text(input_text, options)
 
         # 3. Submit to Gamma API
         headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
-        payload = {
-            "inputText": input_text,
-            "textMode": "generate",
-            "format": fmt,
-            "numCards": num_cards,
-            "exportAs": export_format,
-            "textOptions": {"amount": "medium", "language": "en"},
-            "imageOptions": {"source": "aiGenerated"},
+        template = _resolve_template(headers, options)
+        payload = _build_generation_payload(input_text, options, template)
+        response_context = {
+            "template_id": template.get("id", ""),
+            "template_name": template.get("name", ""),
+            "model": options.get("model", ""),
         }
 
         try:
             logger.info(
-                "Gamma invoke: install=%s format=%s cards=%d",
-                install_id, fmt, num_cards,
+                "Gamma invoke: install=%s format=%s cards=%d template_mode=%s template=%s model=%s",
+                install_id,
+                options["format"],
+                options["num_cards"],
+                options["template_mode"],
+                template.get("id", ""),
+                options.get("model", ""),
             )
-            resp = requests.post(
-                f"{GAMMA_API_BASE}/generations",
-                headers=headers,
-                json=payload,
-                timeout=30,
-            )
-
-            if resp.status_code not in (200, 201):
-                return jsonify({
-                    "result_type": "rich_response",
-                    "data": _rich([_alert_block(
-                        f"Gamma API error ({resp.status_code}): {resp.text[:200]}"
-                    )]),
-                }), 200
-
-            gen_data = resp.json()
-            generation_id = gen_data.get("id") or gen_data.get("generationId")
-            if not generation_id:
-                return jsonify({
-                    "result_type": "rich_response",
-                    "data": _rich([_alert_block("Gamma returned no generation ID.")]),
-                }), 200
-
-            # 4. Poll for completion
-            result = self._poll_generation(headers, generation_id, fmt, export_format)
+            result = _run_generation(headers, payload, options, response_context)
+            # _run_generation returns a JSON string; parse it so the stored result
+            # is a proper dict and survives round-trips through the DB cleanly.
+            try:
+                result_dict = json.loads(result)
+            except Exception:
+                result_dict = {"type": "rich_response", "blocks": []}
             return jsonify({
                 "result_type": "rich_response",
-                "data": result,
+                "data": result_dict,
             }), 200
 
         except requests.Timeout:
             return jsonify({
                 "result_type": "rich_response",
-                "data": _rich([_alert_block("Gamma API request timed out.")]),
+                "data": {"type": "rich_response", "blocks": [_alert_block("Gamma API request timed out.")]},
             }), 200
         except Exception as e:
             logger.error("Gamma invoke error: %s", e, exc_info=True)
             return jsonify({
                 "result_type": "rich_response",
-                "data": _rich([_alert_block(f"Failed to generate: {e}")]),
+                "data": {"type": "rich_response", "blocks": [_alert_block(f"Failed to generate: {e}")]},
             }), 200
 
     @staticmethod
@@ -386,96 +511,6 @@ class GammaInvokeService:
                 role = msg.get("role", "user")
                 parts.append(f"[{role}] {msg.get('content', '')}")
         return "\n\n".join(parts) if parts else "Generate a presentation"
-
-    def _poll_generation(self, headers: dict, generation_id: str,
-                         fmt: str, export_format: str) -> str:
-        """Poll Gamma API until generation completes."""
-        for attempt in range(MAX_POLL_ATTEMPTS):
-            time.sleep(POLL_INTERVAL)
-            try:
-                resp = requests.get(
-                    f"{GAMMA_API_BASE}/generations/{generation_id}",
-                    headers=headers,
-                    timeout=15,
-                )
-                if resp.status_code not in (200, 201):
-                    continue
-
-                data = resp.json()
-                status = data.get("status", "").lower()
-
-                if status == "completed":
-                    return self._build_success_response(data, fmt, export_format)
-                elif status == "failed":
-                    error = data.get("error", "Unknown error")
-                    return _rich([_alert_block(f"Generation failed: {error}")])
-
-            except Exception as e:
-                logger.warning("Gamma poll error attempt %d: %s", attempt, e)
-                continue
-
-        return _rich([_alert_block("Generation timed out after 2 minutes.")])
-
-    @staticmethod
-    def _build_success_response(data: dict, fmt: str, export_format: str) -> str:
-        """Build rich_response JSON from Gamma's completed generation."""
-        gamma_url = data.get("gammaUrl", "")
-        export_url = data.get("exportUrl", "")
-        thumbnail_url = data.get("thumbnailUrl", "")
-        title = data.get("title", "")
-        credits_info = data.get("credits", {})
-
-        format_label = FORMAT_LABELS.get(fmt, "Presentation")
-        export_label = export_format.upper()
-        display_title = title or f"Gamma {format_label}"
-
-        blocks = []
-
-        if thumbnail_url:
-            blocks.append({
-                "type": "image",
-                "url": thumbnail_url,
-                "alt": display_title,
-                "caption": display_title,
-                "width": "full",
-            })
-
-        if gamma_url:
-            embed_url = gamma_url.replace("/docs/", "/embed/")
-            blocks.append({
-                "type": "embed",
-                "url": embed_url,
-                "title": display_title,
-                "description": "Generated via Gamma.app",
-                "aspect_ratio": "16:9",
-                "allow_fullscreen": True,
-            })
-
-        buttons = []
-        if gamma_url:
-            buttons.append({
-                "label": "Open in Gamma",
-                "url": gamma_url,
-                "style": "primary",
-            })
-        if export_url:
-            buttons.append({
-                "label": f"Download {export_label}",
-                "url": export_url,
-                "style": "outline",
-            })
-        if buttons:
-            blocks.append({"type": "buttons", "items": buttons})
-
-        if credits_info and credits_info.get("remaining") is not None:
-            blocks.append({
-                "type": "text",
-                "content": f"Credits remaining: **{credits_info['remaining']}**",
-                "style": "muted",
-            })
-
-        return _rich(blocks)
-
 
 def _alert_block(message: str) -> dict:
     """Build an error alert block."""

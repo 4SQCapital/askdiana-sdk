@@ -26,6 +26,7 @@
       "name": "format",
       "type": "select",
       "label": "Format",
+      "description": "Choose the output format for your Gamma creation.",
       "required": false,
       "options": [
         {"value": "presentation", "label": "Presentation"},
@@ -39,6 +40,7 @@
       "name": "num_cards",
       "type": "select",
       "label": "Number of Slides",
+      "description": "How many slides or cards to generate.",
       "required": false,
       "options": [
         {"value": "4", "label": "4"},
@@ -53,6 +55,7 @@
       "name": "export_format",
       "type": "select",
       "label": "Export Format",
+      "description": "File format for the downloadable export.",
       "required": false,
       "options": [
         {"value": "pdf", "label": "PDF"},
@@ -60,6 +63,61 @@
         {"value": "png", "label": "PNG"}
       ],
       "default": "pdf"
+    },
+    {
+      "name": "template_mode",
+      "type": "select",
+      "label": "Template Mode",
+      "description": "Use a Gamma template to style the output. Leave as 'No Template' for the default AI theme.",
+      "required": false,
+      "options": [
+        {"value": "none", "label": "No Template"},
+        {"value": "manual", "label": "Manual — enter a Template ID"},
+        {"value": "auto_select", "label": "Auto — pick best match from your library"}
+      ],
+      "default": "none"
+    },
+    {
+      "name": "content_amount",
+      "type": "select",
+      "label": "Content Density",
+      "description": "Controls how much text is placed on each slide.",
+      "required": false,
+      "options": [
+        {"value": "brief", "label": "Brief — short bullet points"},
+        {"value": "medium", "label": "Medium — balanced"},
+        {"value": "detailed", "label": "Detailed — rich paragraphs"}
+      ],
+      "default": "medium"
+    },
+    {
+      "name": "template_id",
+      "type": "select",
+      "label": "Theme",
+      "description": "Pick a theme from your Gamma workspace. Loaded from your account — requires API key in settings.",
+      "required": false,
+      "options": [],
+      "source": "/api/themes",
+      "placeholder": "Default theme",
+      "advanced": true
+    },
+    {
+      "name": "logo_url",
+      "type": "text",
+      "label": "Logo URL",
+      "description": "A publicly accessible URL for your company logo. Added to the title slide when provided.",
+      "required": false,
+      "placeholder": "https://your-domain.com/logo.png",
+      "advanced": true
+    },
+    {
+      "name": "brand_name",
+      "type": "text",
+      "label": "Brand Name",
+      "description": "Your company or brand name. Shown on the title slide alongside the logo.",
+      "required": false,
+      "placeholder": "e.g. Acme Corp",
+      "advanced": true
     }
   ],
   "invocation": {
@@ -123,6 +181,57 @@
           "required": false,
           "options": ["en", "ar", "fr", "es", "de", "zh", "ja", "ko"],
           "default": "en"
+        },
+        {
+          "name": "template_mode",
+          "type": "select",
+          "label": "Template Mode",
+          "required": false,
+          "options": ["none", "manual", "auto_select"],
+          "default": "none"
+        },
+        {
+          "name": "template_id",
+          "type": "text",
+          "label": "Template ID",
+          "required": false,
+          "placeholder": "Gamma template ID for manual template selection"
+        },
+        {
+          "name": "template_name",
+          "type": "text",
+          "label": "Template Name",
+          "required": false,
+          "placeholder": "Preferred name for auto-select from templates"
+        },
+        {
+          "name": "model",
+          "type": "text",
+          "label": "Model",
+          "required": false,
+          "placeholder": "Optional Gamma model identifier"
+        },
+        {
+          "name": "content_amount",
+          "type": "select",
+          "label": "Content Density",
+          "required": false,
+          "options": ["brief", "medium", "detailed"],
+          "default": "medium"
+        },
+        {
+          "name": "logo_url",
+          "type": "text",
+          "label": "Logo URL (optional)",
+          "required": false,
+          "placeholder": "Applied only when provided"
+        },
+        {
+          "name": "brand_name",
+          "type": "text",
+          "label": "Brand Name (optional)",
+          "required": false,
+          "placeholder": "Applied only when provided"
         }
       ]
     }
