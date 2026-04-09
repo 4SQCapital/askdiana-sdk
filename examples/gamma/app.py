@@ -61,8 +61,6 @@ def on_install():
         "language",
         "template_mode",
         "template_id",
-        "template_name",
-        "model",
         "content_amount",
         "logo_url",
         "brand_name",
