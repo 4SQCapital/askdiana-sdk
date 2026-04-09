@@ -72,8 +72,8 @@
       "required": false,
       "options": [
         {"value": "none", "label": "No Template"},
-        {"value": "manual", "label": "Manual — enter a Template ID"},
-        {"value": "auto_select", "label": "Auto — pick best match from your library"}
+        {"value": "manual", "label": "Manual - enter a Template ID"},
+        {"value": "auto_select", "label": "Auto - pick best match from your library"}
       ],
       "default": "none"
     },
@@ -84,9 +84,9 @@
       "description": "Controls how much text is placed on each slide.",
       "required": false,
       "options": [
-        {"value": "brief", "label": "Brief — short bullet points"},
-        {"value": "medium", "label": "Medium — balanced"},
-        {"value": "detailed", "label": "Detailed — rich paragraphs"}
+        {"value": "brief", "label": "Brief - short bullet points"},
+        {"value": "medium", "label": "Medium - balanced"},
+        {"value": "detailed", "label": "Detailed - rich paragraphs"}
       ],
       "default": "medium"
     },
@@ -94,7 +94,7 @@
       "name": "template_id",
       "type": "select",
       "label": "Theme",
-      "description": "Pick a theme from your Gamma workspace. Loaded from your account — requires API key in settings.",
+      "description": "Pick a theme from your Gamma workspace. Loaded from your account - requires API key in settings.",
       "required": false,
       "options": [],
       "source": "/api/themes",

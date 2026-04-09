@@ -61,8 +61,6 @@ def _normalize_options(raw: dict, defaults: dict) -> dict:
         "language": (raw.get("language") or defaults.get("language") or "en").lower(),
         "template_mode": (raw.get("template_mode") or defaults.get("template_mode") or "none").lower(),
         "template_id": (raw.get("template_id") or defaults.get("template_id") or "").strip(),
-        "template_name": (raw.get("template_name") or defaults.get("template_name") or "").strip(),
-        "model": (raw.get("model") or defaults.get("model") or "").strip(),
         "content_amount": (raw.get("content_amount") or defaults.get("content_amount") or "medium").lower(),
         "logo_url": (raw.get("logo_url") or defaults.get("logo_url") or "").strip(),
         "brand_name": (raw.get("brand_name") or defaults.get("brand_name") or "").strip(),
@@ -140,8 +138,7 @@ def _build_input_text(base_text: str, options: dict) -> str:
         additions.append(f"Use brand name '{options['brand_name']}' in the output.")
     if options.get("logo_url"):
         additions.append(f"If supported, apply this logo: {options['logo_url']}")
-    if options.get("template_name") and not options.get("template_id"):
-        additions.append(f"Prefer style similar to template '{options['template_name']}'.")
+
 
     if not additions:
         return base_text
@@ -164,26 +161,42 @@ def _build_generation_payload(input_text: str, options: dict, template: dict) ->
 
     if options.get("tone"):
         payload["textOptions"]["tone"] = options["tone"]
-    if options.get("model"):
-        payload["model"] = options["model"]
     if template.get("id"):
-        payload["templateId"] = template["id"]
+        payload["themeId"] = template["id"]
 
     return payload
 
 
 def _build_success_response(data: dict, fmt: str, export_format: str, context: dict = None) -> str:
-    gamma_url = data.get("gammaUrl", "")
-    export_url = data.get("exportUrl", "")
-    thumbnail_url = data.get("thumbnailUrl", "")
+    import re as _re
+
+    gamma_url = data.get("gammaUrl", "") or data.get("url", "")
+    export_url = data.get("exportUrl", "") or data.get("downloadUrl", "")
+    thumbnail_url = data.get("thumbnailUrl", "") or data.get("imageUrl", "")
     title = data.get("title", "")
     format_label = FORMAT_LABELS.get(fmt, "Presentation")
     export_label = export_format.upper()
     display_title = title or f"Gamma {format_label}"
 
+    # Derive embed URL: gamma.app/docs/<id> → gamma.app/embed/<id>
+    embed_url = ""
+    if gamma_url:
+        match = _re.search(r"gamma\.app/(?:docs|embed)/([^/?#]+)", gamma_url)
+        if match:
+            embed_url = f"https://gamma.app/embed/{match.group(1)}"
+
     blocks = []
 
-    if thumbnail_url:
+    if embed_url:
+        blocks.append({
+            "type": "embed",
+            "url": embed_url,
+            "title": display_title,
+            "description": f"Your {format_label} is ready",
+            "aspect_ratio": "16:9",
+            "allow_fullscreen": True,
+        })
+    elif thumbnail_url:
         blocks.append({
             "type": "image",
             "url": thumbnail_url,
@@ -191,16 +204,16 @@ def _build_success_response(data: dict, fmt: str, export_format: str, context: d
             "caption": display_title,
             "width": "full",
         })
-
-    if gamma_url:
-        embed_url = gamma_url.replace("/docs/", "/embed/")
+    else:
+        card_body = f"Your {format_label} is ready."
+        if context and context.get("template_name"):
+            card_body += f" Theme: **{context['template_name']}**"
         blocks.append({
-            "type": "embed",
-            "url": embed_url,
+            "type": "card",
             "title": display_title,
-            "description": "Generated via Gamma.app",
-            "aspect_ratio": "16:9",
-            "allow_fullscreen": True,
+            "body": card_body,
+            "icon": "🎨",
+            "url": gamma_url or None,
         })
 
     buttons = []
@@ -219,20 +232,11 @@ def _build_success_response(data: dict, fmt: str, export_format: str, context: d
     if buttons:
         blocks.append({"type": "buttons", "items": buttons})
 
-    if context:
-        info_parts = []
-        if context.get("template_name"):
-            info_parts.append(f"Template: **{context['template_name']}**")
-        elif context.get("template_id"):
-            info_parts.append(f"Template ID: **{context['template_id']}**")
-        if context.get("model"):
-            info_parts.append(f"Model: **{context['model']}**")
-        if info_parts:
-            blocks.append({
-                "type": "text",
-                "content": " | ".join(info_parts),
-                "style": "muted",
-            })
+    if not blocks:
+        blocks.append({
+            "type": "text",
+            "content": f"Your {format_label} has been generated successfully.",
+        })
 
     return _rich(blocks)
 
@@ -316,8 +320,6 @@ class GammaChatService(ChatService):
             "language": self.get_config(install_id, "language", "en"),
             "template_mode": self.get_config(install_id, "template_mode", "none"),
             "template_id": self.get_config(install_id, "template_id", ""),
-            "template_name": self.get_config(install_id, "template_name", ""),
-            "model": self.get_config(install_id, "model", ""),
             "content_amount": self.get_config(install_id, "content_amount", "medium"),
             "logo_url": self.get_config(install_id, "logo_url", ""),
             "brand_name": self.get_config(install_id, "brand_name", ""),
@@ -335,18 +337,16 @@ class GammaChatService(ChatService):
         response_context = {
             "template_id": template.get("id", ""),
             "template_name": template.get("name", ""),
-            "model": options.get("model", ""),
         }
 
         try:
             logger.info(
-                "Gamma generate: install=%s format=%s cards=%d template_mode=%s template=%s model=%s",
+                "Gamma generate: install=%s format=%s cards=%d template_mode=%s template=%s",
                 install_id,
                 options["format"],
                 options["num_cards"],
                 options["template_mode"],
                 template.get("id", ""),
-                options.get("model", ""),
             )
             return _run_generation(headers, payload, options, response_context)
 
@@ -367,8 +367,6 @@ class GammaChatService(ChatService):
             "language",
             "template_mode",
             "template_id",
-            "template_name",
-            "model",
             "content_amount",
             "logo_url",
             "brand_name",
@@ -433,8 +431,6 @@ class GammaInvokeService:
             "language": "en",
             "template_mode": "none",
             "template_id": "",
-            "template_name": "",
-            "model": "",
             "content_amount": "medium",
             "logo_url": "",
             "brand_name": "",
@@ -458,7 +454,6 @@ class GammaInvokeService:
         response_context = {
             "template_id": template.get("id", ""),
             "template_name": template.get("name", ""),
-            "model": options.get("model", ""),
         }
 
         try:
