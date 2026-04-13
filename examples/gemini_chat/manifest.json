@@ -1,7 +1,7 @@
 {
   "name": "Ask Gemini",
   "slug": "ask-gemini",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "ai_ml",
   "description": "Chat with Google Gemini AI directly in Ask DIANA. Supports multi-turn conversations with full context from your chat history. Users can bring their own API key or use the developer's default.",
   "short_description": "Chat with Google Gemini AI",
