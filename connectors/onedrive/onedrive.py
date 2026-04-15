@@ -9,6 +9,9 @@ import requests
 from typing import Optional, Tuple, Dict, Any
 from urllib.parse import urlencode
 
+_API_TIMEOUT = 30        # metadata, OAuth, list operations
+_DOWNLOAD_TIMEOUT = 300  # content download — 5 min for large files
+
 MICROSOFT_AUTH_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 MICROSOFT_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
@@ -54,7 +57,7 @@ def exchange_code(
         "redirect_uri": redirect_uri,
         "grant_type": "authorization_code",
         "scope": " ".join(ONEDRIVE_SCOPES),
-    })
+    }, timeout=_API_TIMEOUT)
     resp.raise_for_status()
     return resp.json()
 
@@ -71,7 +74,7 @@ def refresh_access_token(
         "client_secret": client_secret,
         "grant_type": "refresh_token",
         "scope": " ".join(ONEDRIVE_SCOPES),
-    })
+    }, timeout=_API_TIMEOUT)
     resp.raise_for_status()
     return resp.json()
 
@@ -81,6 +84,7 @@ def get_user_info(access_token: str) -> Dict[str, Any]:
     resp = requests.get(
         f"{GRAPH_API_URL}/me",
         headers={"Authorization": f"Bearer {access_token}"},
+        timeout=_API_TIMEOUT,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -104,13 +108,13 @@ def list_files(
 
     if page_token:
         # page_token is the full @odata.nextLink URL
-        response = requests.get(page_token, headers=headers)
+        response = requests.get(page_token, headers=headers, timeout=_API_TIMEOUT)
     else:
         if folder_id:
             url = f"{GRAPH_API_URL}/me/drive/items/{folder_id}/children"
         else:
             url = f"{GRAPH_API_URL}/me/drive/root/children"
-        response = requests.get(url, headers=headers, params={"$top": page_size})
+        response = requests.get(url, headers=headers, params={"$top": page_size}, timeout=_API_TIMEOUT)
 
     response.raise_for_status()
     data = response.json()
@@ -148,6 +152,7 @@ def download_file(access_token: str, file_id: str) -> Tuple[bytes, str, str]:
     meta_resp = requests.get(
         f"{GRAPH_API_URL}/me/drive/items/{file_id}",
         headers=headers,
+        timeout=_API_TIMEOUT,
     )
     meta_resp.raise_for_status()
     metadata = meta_resp.json()
@@ -160,7 +165,7 @@ def download_file(access_token: str, file_id: str) -> Tuple[bytes, str, str]:
         raise ValueError("No download URL available for this file")
 
     # Download file content
-    content_resp = requests.get(download_url)
+    content_resp = requests.get(download_url, timeout=_DOWNLOAD_TIMEOUT)
     content_resp.raise_for_status()
 
     return content_resp.content, file_name, mime_type
