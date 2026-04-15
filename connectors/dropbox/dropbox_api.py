@@ -10,6 +10,9 @@ import requests
 from typing import Optional, Tuple, Dict, Any
 from urllib.parse import urlencode
 
+_API_TIMEOUT = 30        # metadata, OAuth, list operations
+_DOWNLOAD_TIMEOUT = 300  # content download — 5 min for large files
+
 DROPBOX_AUTH_URL = "https://www.dropbox.com/oauth2/authorize"
 DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
 DROPBOX_API_URL = "https://api.dropboxapi.com/2"
@@ -66,6 +69,7 @@ def exchange_code(
             "grant_type": "authorization_code",
         },
         auth=(client_id, client_secret),
+        timeout=_API_TIMEOUT,
     )
     resp.raise_for_status()
     return resp.json()
@@ -84,6 +88,7 @@ def refresh_access_token(
             "grant_type": "refresh_token",
         },
         auth=(client_id, client_secret),
+        timeout=_API_TIMEOUT,
     )
     resp.raise_for_status()
     return resp.json()
@@ -94,6 +99,7 @@ def get_user_info(access_token: str) -> Dict[str, Any]:
     resp = requests.post(
         f"{DROPBOX_API_URL}/users/get_current_account",
         headers={"Authorization": f"Bearer {access_token}"},
+        timeout=_API_TIMEOUT,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -107,6 +113,7 @@ def revoke_token(access_token: str) -> bool:
         resp = requests.post(
             f"{DROPBOX_API_URL}/auth/token/revoke",
             headers={"Authorization": f"Bearer {access_token}"},
+            timeout=_API_TIMEOUT,
         )
         return resp.status_code == 200
     except Exception:
@@ -134,6 +141,7 @@ def list_files(
             f"{DROPBOX_API_URL}/files/list_folder/continue",
             headers=headers,
             json={"cursor": cursor},
+            timeout=_API_TIMEOUT,
         )
     else:
         path = folder_path if folder_path else ""
@@ -141,6 +149,7 @@ def list_files(
             f"{DROPBOX_API_URL}/files/list_folder",
             headers=headers,
             json={"path": path, "limit": page_size},
+            timeout=_API_TIMEOUT,
         )
 
     response.raise_for_status()
@@ -181,6 +190,7 @@ def download_file(access_token: str, file_path: str) -> Tuple[bytes, str, str]:
     response = requests.post(
         f"{DROPBOX_CONTENT_URL}/files/download",
         headers=headers,
+        timeout=_DOWNLOAD_TIMEOUT,
     )
     response.raise_for_status()
 

@@ -9,6 +9,9 @@ import requests
 from typing import Optional, Tuple, Dict, Any
 from urllib.parse import urlencode
 
+_API_TIMEOUT = 30        # metadata, OAuth, list operations
+_DOWNLOAD_TIMEOUT = 300  # content download — 5 min for large files
+
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
@@ -63,7 +66,7 @@ def exchange_code(
         "client_secret": client_secret,
         "redirect_uri": redirect_uri,
         "grant_type": "authorization_code",
-    })
+    }, timeout=_API_TIMEOUT)
     resp.raise_for_status()
     return resp.json()
 
@@ -79,7 +82,7 @@ def refresh_access_token(
         "client_id": client_id,
         "client_secret": client_secret,
         "grant_type": "refresh_token",
-    })
+    }, timeout=_API_TIMEOUT)
     resp.raise_for_status()
     return resp.json()
 
@@ -89,6 +92,7 @@ def get_user_info(access_token: str) -> Dict[str, Any]:
     resp = requests.get(
         GOOGLE_USERINFO_URL,
         headers={"Authorization": f"Bearer {access_token}"},
+        timeout=_API_TIMEOUT,
     )
     resp.raise_for_status()
     return resp.json()
@@ -97,7 +101,7 @@ def get_user_info(access_token: str) -> Dict[str, Any]:
 def revoke_token(token: str) -> bool:
     """Revoke an access or refresh token."""
     try:
-        resp = requests.post(GOOGLE_REVOKE_URL, params={"token": token})
+        resp = requests.post(GOOGLE_REVOKE_URL, params={"token": token}, timeout=_API_TIMEOUT)
         return resp.status_code == 200
     except Exception:
         return False
@@ -135,6 +139,7 @@ def list_files(
         GOOGLE_DRIVE_FILES_URL,
         params=params,
         headers={"Authorization": f"Bearer {access_token}"},
+        timeout=_API_TIMEOUT,
     )
     response.raise_for_status()
     return response.json()
@@ -149,6 +154,7 @@ def download_file(access_token: str, file_id: str) -> Tuple[bytes, str, str]:
         f"{GOOGLE_DRIVE_FILES_URL}/{file_id}",
         params={"fields": "name,mimeType,size"},
         headers=headers,
+        timeout=_API_TIMEOUT,
     )
     meta_resp.raise_for_status()
     metadata = meta_resp.json()
@@ -158,6 +164,7 @@ def download_file(access_token: str, file_id: str) -> Tuple[bytes, str, str]:
         f"{GOOGLE_DRIVE_FILES_URL}/{file_id}",
         params={"alt": "media"},
         headers=headers,
+        timeout=_DOWNLOAD_TIMEOUT,
     )
     content_resp.raise_for_status()
 

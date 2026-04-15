@@ -201,7 +201,7 @@ class AskDianaClient:
 
         # Use a longer timeout for file uploads — the backend needs time
         # to receive, store, and begin processing the document.
-        upload_timeout = max(self.timeout, 120)
+        upload_timeout = max(self.timeout, 300)
         response = self._session.post(
             url,
             headers=headers,

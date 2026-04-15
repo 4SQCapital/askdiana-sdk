@@ -349,8 +349,18 @@ class ConnectorService:
             file_id = data.get("file_id")
             if not install_id or not file_id:
                 return flask_jsonify({"error": "install_id and file_id required"}), 400
+            # Optional progress callback fields supplied by the Ask backend
+            upload_id = data.get("upload_id")
+            progress_url = data.get("progress_url")
+            progress_bearer_token = data.get("bearer_token")
             try:
-                result = svc.sync_file(install_id=install_id, file_id=file_id)
+                result = svc.sync_file(
+                    install_id=install_id,
+                    file_id=file_id,
+                    upload_id=upload_id,
+                    progress_url=progress_url,
+                    progress_bearer_token=progress_bearer_token,
+                )
                 return flask_jsonify(result), 200
             except Exception as e:
                 logger.error("Sync error: %s", e, exc_info=True)
@@ -401,6 +411,9 @@ class ConnectorService:
         self,
         install_id: str,
         file_id: str,
+        upload_id: Optional[str] = None,
+        progress_url: Optional[str] = None,
+        progress_bearer_token: Optional[str] = None,
         **download_kwargs: Any,
     ) -> Dict[str, Any]:
         """Download a file from the external source and upload to Ask DIANA.
@@ -416,15 +429,53 @@ class ConnectorService:
         Args:
             install_id: Install UUID from webhook payload.
             file_id: File identifier in the external source.
+            upload_id: Optional upload ID provided by the Ask backend for
+                progress tracking.  When supplied together with
+                ``progress_url``, intermediate progress is reported back
+                to the backend so the frontend poll stays up-to-date.
+            progress_url: URL on the Ask backend to POST progress updates to.
+            progress_bearer_token: Bearer token to authenticate progress
+                callback requests.
             **download_kwargs: Extra kwargs passed to :meth:`download_file`.
 
         Returns:
             Dict with ``"success"``, ``"file_name"``, and ``"document"``
-            keys.
+            keys.  ``"document"`` may be ``None`` when the backend accepted
+            the file asynchronously (HTTP 202).
         """
+        import requests as _req
+
+        def _report(percent: int, message: str, fname: str = file_id) -> None:
+            """Push an intermediate progress update to the Ask backend.
+
+            Best-effort: any failure is silently swallowed so progress
+            reporting never blocks or breaks the actual sync.
+            """
+            if not (progress_url and upload_id):
+                return
+            try:
+                headers: Dict[str, str] = {}
+                if progress_bearer_token:
+                    headers["Authorization"] = f"Bearer {progress_bearer_token}"
+                _req.post(
+                    progress_url,
+                    json={
+                        "upload_id": upload_id,
+                        "stage": "processing",
+                        "percent": percent,
+                        "message": message,
+                        "file_name": fname,
+                    },
+                    headers=headers,
+                    timeout=5,
+                )
+            except Exception:
+                pass  # progress is best-effort
+
         file_name = file_id
         try:
             # 1. Download — pass install_id so subclasses can use it
+            _report(20, "Downloading file...")
             download_kwargs.setdefault("install_id", install_id)
             content, file_name, mime_type = self.download_file(
                 file_id, **download_kwargs
@@ -435,6 +486,7 @@ class ConnectorService:
             )
 
             # 2. Upload to Ask DIANA
+            _report(55, f"Uploading {file_name} to Ask DIANA...", file_name)
             result = self.client.upload_document(
                 install_id=install_id,
                 file_content=content,
@@ -443,11 +495,16 @@ class ConnectorService:
                 source_reference=file_id,
             )
 
+            if not result.get("success"):
+                raise RuntimeError(result.get("message", "Upload failed"))
+
+            _report(90, "Processing document...", file_name)
+
             # 3. Record in ask_extensions DB (only if store_history enabled)
             if self.store_history:
                 doc_id = (
                     result.get("document", {}).get("id")
-                    if result.get("success") else None
+                    if result.get("document") else None
                 )
                 self._record_sync(
                     install_id=install_id,
@@ -460,6 +517,7 @@ class ConnectorService:
             return {
                 "success": True,
                 "file_name": file_name,
+                # "document" may be None for async (202) backend responses
                 "document": result.get("document"),
             }
 
