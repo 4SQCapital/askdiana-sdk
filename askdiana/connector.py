@@ -349,9 +349,10 @@ class ConnectorService:
             file_id = data.get("file_id")
             if not install_id or not file_id:
                 return flask_jsonify({"error": "install_id and file_id required"}), 400
-            # Optional progress callback fields supplied by the Ask backend
+            # Optional progress/cancel fields supplied by the Ask backend
             upload_id = data.get("upload_id")
             progress_url = data.get("progress_url")
+            cancel_check_url = data.get("cancel_check_url")
             progress_bearer_token = data.get("bearer_token")
             try:
                 result = svc.sync_file(
@@ -359,8 +360,13 @@ class ConnectorService:
                     file_id=file_id,
                     upload_id=upload_id,
                     progress_url=progress_url,
+                    cancel_check_url=cancel_check_url,
                     progress_bearer_token=progress_bearer_token,
                 )
+                # SDK detected user cancellation — return 409 so the backend
+                # knows to treat this as a cancel, not an error
+                if result.get("cancelled"):
+                    return flask_jsonify(result), 409
                 return flask_jsonify(result), 200
             except Exception as e:
                 logger.error("Sync error: %s", e, exc_info=True)
@@ -413,6 +419,7 @@ class ConnectorService:
         file_id: str,
         upload_id: Optional[str] = None,
         progress_url: Optional[str] = None,
+        cancel_check_url: Optional[str] = None,
         progress_bearer_token: Optional[str] = None,
         **download_kwargs: Any,
     ) -> Dict[str, Any]:
@@ -420,10 +427,12 @@ class ConnectorService:
 
         This is the main sync workflow:
 
-        1. Download from external source via :meth:`download_file`
-        2. Upload to Ask DIANA via ``client.upload_document``
+        1. Check cancellation (before download)
+        2. Download from external source via :meth:`download_file`
+        3. Check cancellation (after download, before upload)
+        4. Upload to Ask DIANA via ``client.upload_document``
            (stored in the main ``ask`` database)
-        3. Optionally record sync history in ``ask_extensions`` DB
+        5. Optionally record sync history in ``ask_extensions`` DB
            (only when ``store_history=True``)
 
         Args:
@@ -434,16 +443,23 @@ class ConnectorService:
                 ``progress_url``, intermediate progress is reported back
                 to the backend so the frontend poll stays up-to-date.
             progress_url: URL on the Ask backend to POST progress updates to.
-            progress_bearer_token: Bearer token to authenticate progress
-                callback requests.
+            cancel_check_url: URL on the Ask backend to GET cancel status from.
+                When set, the SDK will abort early if the user cancelled.
+            progress_bearer_token: Bearer token to authenticate progress and
+                cancel-check requests.
             **download_kwargs: Extra kwargs passed to :meth:`download_file`.
 
         Returns:
             Dict with ``"success"``, ``"file_name"``, and ``"document"``
             keys.  ``"document"`` may be ``None`` when the backend accepted
-            the file asynchronously (HTTP 202).
+            the file asynchronously (HTTP 202).  Returns ``{"cancelled": True}``
+            when the user cancelled the sync before the upload started.
         """
         import requests as _req
+
+        _auth_headers: Dict[str, str] = {}
+        if progress_bearer_token:
+            _auth_headers["Authorization"] = f"Bearer {progress_bearer_token}"
 
         def _report(percent: int, message: str, fname: str = file_id) -> None:
             """Push an intermediate progress update to the Ask backend.
@@ -454,9 +470,6 @@ class ConnectorService:
             if not (progress_url and upload_id):
                 return
             try:
-                headers: Dict[str, str] = {}
-                if progress_bearer_token:
-                    headers["Authorization"] = f"Bearer {progress_bearer_token}"
                 _req.post(
                     progress_url,
                     json={
@@ -466,15 +479,41 @@ class ConnectorService:
                         "message": message,
                         "file_name": fname,
                     },
-                    headers=headers,
+                    headers=_auth_headers,
                     timeout=5,
                 )
             except Exception:
                 pass  # progress is best-effort
 
+        def _is_cancelled() -> bool:
+            """Poll the backend to check if the user cancelled this sync.
+
+            Best-effort: returns False on any network/auth failure so a
+            transient error never silently drops the file.
+            """
+            if not (cancel_check_url and upload_id):
+                return False
+            try:
+                resp = _req.get(
+                    cancel_check_url,
+                    params={"upload_id": upload_id},
+                    headers=_auth_headers,
+                    timeout=5,
+                )
+                if resp.status_code == 200:
+                    return resp.json().get("cancelled", False)
+            except Exception:
+                pass
+            return False
+
         file_name = file_id
         try:
-            # 1. Download — pass install_id so subclasses can use it
+            # 1. Check cancel before starting the (potentially slow) download
+            if _is_cancelled():
+                logger.info("Sync cancelled before download: file_id=%s", file_id)
+                return {"success": False, "cancelled": True, "file_name": file_name}
+
+            # 2. Download — pass install_id so subclasses can use it
             _report(20, "Downloading file...")
             download_kwargs.setdefault("install_id", install_id)
             content, file_name, mime_type = self.download_file(
@@ -485,7 +524,12 @@ class ConnectorService:
                 file_name, len(content), mime_type,
             )
 
-            # 2. Upload to Ask DIANA
+            # 3. Check cancel after download, before sending bytes to the backend
+            if _is_cancelled():
+                logger.info("Sync cancelled after download: file=%s", file_name)
+                return {"success": False, "cancelled": True, "file_name": file_name}
+
+            # 4. Upload to Ask DIANA
             _report(55, f"Uploading {file_name} to Ask DIANA...", file_name)
             result = self.client.upload_document(
                 install_id=install_id,
@@ -500,7 +544,7 @@ class ConnectorService:
 
             _report(90, "Processing document...", file_name)
 
-            # 3. Record in ask_extensions DB (only if store_history enabled)
+            # 5. Record in ask_extensions DB (only if store_history enabled)
             if self.store_history:
                 doc_id = (
                     result.get("document", {}).get("id")
@@ -519,6 +563,10 @@ class ConnectorService:
                 "file_name": file_name,
                 # "document" may be None for async (202) backend responses
                 "document": result.get("document"),
+                # upload_id from the backend ingestion job — used by the
+                # backend to poll ingestion progress and surface it to the
+                # frontend even after this sync call returns
+                "ingestion_upload_id": result.get("upload_id"),
             }
 
         except Exception as exc:
