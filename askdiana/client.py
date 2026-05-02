@@ -74,7 +74,13 @@ class AskDianaClient:
             timeout=self.timeout,
         )
         response.raise_for_status()
-        return response.json()
+        try:
+            return response.json()
+        except ValueError:
+            raise RuntimeError(
+                f"Non-JSON response from API ({response.status_code}): "
+                f"{response.text[:200]}"
+            )
 
     # ------------------------------------------------------------------ #
     # Endpoints                                                            #
@@ -210,7 +216,13 @@ class AskDianaClient:
             timeout=upload_timeout,
         )
         response.raise_for_status()
-        return response.json()
+        try:
+            return response.json()
+        except ValueError:
+            raise RuntimeError(
+                f"Non-JSON response from upload API ({response.status_code}): "
+                f"{response.text[:200]}"
+            )
 
     def search_documents(
         self,

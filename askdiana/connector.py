@@ -182,15 +182,16 @@ class ConnectorService:
         try:
             result = self.client.get_data(install_id, self.auth_namespace, "tokens")
             return result.get("data", {}).get("value")
-        except Exception:
+        except Exception as exc:
+            logger.debug("get_tokens failed for install_id=%s: %s", install_id, exc)
             return None
 
     def clear_tokens(self, install_id: str) -> None:
         """Delete stored OAuth tokens."""
         try:
             self.client.delete_data(install_id, self.auth_namespace, "tokens")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("clear_tokens failed for install_id=%s: %s", install_id, exc)
 
     # ------------------------------------------------------------------ #
     # Route registration                                                   #
@@ -363,10 +364,8 @@ class ConnectorService:
                     cancel_check_url=cancel_check_url,
                     progress_bearer_token=progress_bearer_token,
                 )
-                # SDK detected user cancellation — return 409 so the backend
-                # knows to treat this as a cancel, not an error
-                if result.get("cancelled"):
-                    return flask_jsonify(result), 409
+                # Cancellation is communicated via "cancelled": true in the body.
+                # Always return 200 so callers check the body, not the status code.
                 return flask_jsonify(result), 200
             except Exception as e:
                 logger.error("Sync error: %s", e, exc_info=True)
@@ -628,4 +627,7 @@ class ConnectorService:
         try:
             self.client.set_data(install_id, self.sync_namespace, sync_id, record)
         except Exception as exc:
-            logger.warning("Failed to record sync: %s", exc)
+            logger.warning(
+                "Failed to record sync history for install_id=%s file_id=%s: %s",
+                install_id, file_id, exc,
+            )

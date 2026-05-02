@@ -29,6 +29,9 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from .client import AskDianaClient
 
+# Registry of declared table names → model class (process-scoped, for duplicate detection)
+_REGISTERED_TABLENAMES: Dict[str, type] = {}
+
 
 # ------------------------------------------------------------------ #
 # Field classes                                                        #
@@ -166,6 +169,17 @@ class ExtModelMeta(type):
                 inherited[attr_name] = attr_value
 
         cls._fields = list(inherited.values())  # type: ignore[attr-defined]
+
+        # Detect duplicate __tablename__ across model classes
+        tablename = namespace.get("__tablename__", "")
+        if tablename and tablename.startswith("ext_"):
+            existing = _REGISTERED_TABLENAMES.get(tablename)
+            if existing is not None and existing is not cls:
+                raise ValueError(
+                    f"Duplicate __tablename__ '{tablename}': already declared by "
+                    f"'{existing.__name__}'. Each table name must be unique."
+                )
+            _REGISTERED_TABLENAMES[tablename] = cls
 
         return cls
 

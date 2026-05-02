@@ -23,6 +23,7 @@ Usage::
 """
 
 import hmac
+import warnings
 
 
 class WebhookVerificationError(Exception):
@@ -90,6 +91,12 @@ def verify_webhook(
     .. deprecated::
         Use :func:`verify_bearer_token` directly.
     """
+    warnings.warn(
+        "verify_webhook() is deprecated and will be removed in a future version. "
+        "Use verify_bearer_token() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     # New-style Bearer auth
     auth = authorization_header or ""
     key = expected_key or secret or ""
