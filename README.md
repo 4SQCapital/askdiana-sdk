@@ -1,16 +1,46 @@
 # Ask DIANA Extension SDK
 
+![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Python](https://img.shields.io/badge/python-3.8%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Python SDK for building extensions that integrate with [Ask DIANA](https://askdiana.ai).
+
+## Prerequisites
+
+- Python 3.8+
+- An Ask DIANA developer account and API key (`askd_...` format)
+- SSH access to the `4SQCapital/askdiana-sdk` repository
+- A publicly reachable HTTPS URL for webhook delivery (use [ngrok](https://ngrok.com) during local development)
 
 ## Installation
 
 ```bash
-# From the SDK directory
-pip install -e .
+# From GitHub (recommended)
+pip install "git+ssh://git@github.com/4SQCapital/askdiana-sdk.git#egg=askdiana[app]"
 
-# Or install dependencies directly
-pip install requests
+# Core only — no Flask dependency (API client, models, webhooks)
+pip install "git+ssh://git@github.com/4SQCapital/askdiana-sdk.git#egg=askdiana"
+
+# From local source (editable mode — changes take effect immediately)
+pip install -e ".[app]"
 ```
+
+The `[app]` extra installs Flask and its dependencies. Required for `ExtensionApp` and
+the structured extension layout. Omit it if you only need the API client or webhook
+verification inside an existing web framework (Django, FastAPI, etc.).
+
+### Local environment setup
+
+Copy the example environment file and fill in your credentials:
+
+```bash
+cp .env.example .env
+# Edit .env with your actual API key and settings
+```
+
+> **Never commit `.env` files.** The `.gitignore` already excludes them.
+> Share `.env.example` with placeholder values instead.
 
 ## Quick Start
 
@@ -19,23 +49,21 @@ pip install requests
 ```python
 import os
 from flask import Flask, request, jsonify
-from askdiana import verify_bearer_token
+from askdiana import verify_bearer_token, WebhookVerificationError
 
 app = Flask(__name__)
 API_KEY = os.environ.get("ASKDIANA_API_KEY", "")
 
 @app.route("/webhooks", methods=["POST"])
 def handle_webhook():
-    # Verify the request is from Ask DIANA
     try:
         verify_bearer_token(
             authorization_header=request.headers.get("Authorization", ""),
             expected_key=API_KEY,
         )
-    except ValueError as e:
+    except WebhookVerificationError as e:
         return jsonify({"error": str(e)}), 401
 
-    # Process the event
     event = request.headers.get("X-AskDiana-Event")
     body = request.get_json()
     print(f"Event: {event}, Data: {body['data']}")
@@ -46,14 +74,14 @@ def handle_webhook():
 ### 2. Call the Extension API
 
 ```python
+import os
 from askdiana import AskDianaClient
 
 client = AskDianaClient(
-    api_key="askd_your_api_key_here",
+    api_key=os.environ["ASKDIANA_API_KEY"],
     base_url="https://app.askdiana.ai",
 )
 
-# Use the install_id from the webhook payload
 install_id = "uuid-from-webhook-payload"
 
 # List user's documents (requires documents:read scope)
@@ -61,16 +89,13 @@ docs = client.list_documents(install_id)
 for doc in docs["documents"]:
     print(f"{doc['file_name']} ({doc['file_size']} bytes)")
 
-# List user's chats (requires chats:read scope)
-chats = client.list_chats(install_id)
-
 # Get user profile (requires user:profile scope)
 profile = client.get_user_profile(install_id)
 print(f"User: {profile['user']['name']}")
 
-# Get install metadata (no scope required)
-install = client.get_install_info(install_id)
-print(f"Scopes: {install['install']['scopes_granted']}")
+# Get install config (no scope required) — reads settings saved by the user
+config = client.get_config(install_id)
+api_key = client.get_config(install_id, key="api_key")
 
 # Upload a document (requires documents:write scope)
 with open("report.pdf", "rb") as f:
@@ -83,7 +108,28 @@ with open("report.pdf", "rb") as f:
 print(f"Uploaded: {result['document']['id']}")
 ```
 
-### 3. Store and retrieve data
+### 3. Error handling
+
+```python
+import requests
+from askdiana import AskDianaClient
+
+client = AskDianaClient(api_key=os.environ["ASKDIANA_API_KEY"])
+
+try:
+    docs = client.list_documents(install_id)
+except requests.HTTPError as e:
+    if e.response.status_code == 403:
+        print("Missing required scope — check your extension's granted scopes")
+    elif e.response.status_code == 404:
+        print("Install not found")
+    else:
+        print(f"API error {e.response.status_code}: {e.response.text}")
+except RuntimeError as e:
+    print(f"Unexpected response: {e}")
+```
+
+### 4. Store and retrieve data
 
 ```python
 # Store a value (any JSON-serializable data)
@@ -103,10 +149,7 @@ for item in all_settings["data"]:
 client.delete_data(install_id, "settings", "theme")
 ```
 
-### 4. Define custom database tables
-
-For extensions that need dedicated tables (beyond key-value storage), use
-the declarative model syntax:
+### 5. Define custom database tables
 
 ```python
 from askdiana import ExtModel, StringField, IntegerField, DateTimeField, JsonField
@@ -144,50 +187,19 @@ Available field types:
 
 Table names **must** start with `ext_` and have at least one primary key column.
 
-To register multiple models at once:
+Register multiple models at once:
 
 ```python
 from askdiana import register_all_models
 
-register_all_models(client, install_id, "1.0.0",
-                    SyncHistory, UserSettings, Accounts)
+register_all_models(client, install_id, "1.0.0", SyncHistory, UserSettings, Accounts)
 ```
 
-### 5. Model inheritance — extend tables with new fields
-
-Models support Python inheritance. A child class inherits all parent fields
-and can add new ones:
-
-```python
-from askdiana import ExtModel, StringField, IntegerField, BooleanField, DateTimeField, TextField
-
-class TaskTracker(ExtModel):
-    __tablename__ = "ext_myext_tasks"
-
-    id = StringField(primary_key=True, max_length=36)
-    install_id = StringField(max_length=36, nullable=False)
-    title = StringField(max_length=500, nullable=False)
-    created_at = DateTimeField(nullable=True)
-
-class CompletableTask(TaskTracker):
-    """Extends TaskTracker — inherits id, install_id, title, created_at."""
-    __tablename__ = "ext_myext_tasks"  # same table
-
-    description = TextField(nullable=True)
-    priority = IntegerField(nullable=True)
-    completed = BooleanField(nullable=True)
-
-# CompletableTask.to_schema() includes ALL 7 columns
-CompletableTask.setup(client, install_id, version="1.0.0")
-```
-
-### 6. Structured extension layout (recommended for larger extensions)
-
-For extensions beyond a single file, use `ExtensionApp` with auto-discovery:
+### 6. Structured extension layout (recommended)
 
 ```bash
-pip install askdiana[app]   # includes Flask
 askdiana init my_extension  # scaffolds project structure
+cd my_extension
 ```
 
 This creates:
@@ -196,13 +208,15 @@ This creates:
 my_extension/
 ├── app.py              # ExtensionApp entry point
 ├── manifest.json
+├── .env.example
+├── requirements.txt
 ├── models/             # ExtModel subclasses (auto-discovered)
 │   └── task.py
 ├── services/           # Business logic (ExtensionService subclasses)
 │   └── task_service.py
 ├── controllers/        # Flask Blueprints (auto-discovered)
 │   └── tasks.py
-└── views/              # Future: UI templates
+└── views/              # UI templates (reserved)
 ```
 
 **app.py:**
@@ -212,122 +226,231 @@ from askdiana import ExtensionApp
 
 app = ExtensionApp(__name__)
 
+@app.flask.route("/webhooks/install", methods=["POST"])
+def on_install():
+    from flask import request, jsonify
+    app.verify_request()
+    body = request.get_json()
+    install_id = body["data"]["install_id"]
+    app.setup_models(install_id, version="1.0.0")
+    return jsonify({"ok": True}), 200
+
 if __name__ == "__main__":
     app.run(port=5000)
 ```
 
 `ExtensionApp` automatically:
 - Creates an `AskDianaClient` from `ASKDIANA_API_KEY` env var
-- Discovers ExtModel subclasses in `models/`
+- Discovers `ExtModel` subclasses in `models/`
 - Discovers and registers Flask Blueprints in `controllers/`
-- Adds a `/health` endpoint
+- Adds a `GET /health` endpoint
+- Verifies webhook Bearer tokens via `app.verify_request()`
 
-**Services** extend `ExtensionService` for business logic:
+**Services** extend `ExtensionService`:
 
 ```python
 from askdiana import ExtensionService
 
 class TaskService(ExtensionService):
     def create_task(self, install_id, title):
-        self.client.set_data(install_id, "tasks", title, {"title": title})
+        import uuid
+        note_id = str(uuid.uuid4())
+        self.client.set_data(install_id, "tasks", note_id, {"title": title})
 ```
 
-**Controllers** use decorators for common patterns:
+**Controllers** use decorators:
 
 ```python
 from flask import Blueprint, g, jsonify
-from askdiana.controller import webhook_required, install_id_required
+from askdiana.controller import install_id_required
 
 tasks_bp = Blueprint("tasks", __name__)
 
 @tasks_bp.route("/api/tasks", methods=["GET"])
 @install_id_required
 def list_tasks():
-    # g.install_id is automatically extracted
+    # g.install_id is automatically extracted from the request
     return jsonify({"tasks": []}), 200
 ```
 
-**CLI scaffolding:**
+### 7. AI chat extensions (ChatService)
+
+```python
+from askdiana import ChatService
+
+class GeminiChatService(ChatService):
+    def respond(self, install_id, message, history=None, chat_id=None, **kwargs):
+        import google.generativeai as genai
+        # get_api_key() reads from install config (user settings) then data store
+        genai.configure(api_key=self.get_api_key(install_id))
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        return model.generate_content(message).text
+
+svc = GeminiChatService(app.client)
+svc.register_routes(app)  # registers POST /api/chat
+```
+
+### 8. File connector extensions (ConnectorService)
+
+```python
+from askdiana import ConnectorService
+
+class GoogleDriveService(ConnectorService):
+    source_type = "google_drive"
+    provider_name = "google_drive"
+
+    def get_auth_url(self, install_id, redirect_uri): ...
+    def handle_auth_callback(self, install_id, code, redirect_uri): ...
+    def get_auth_status(self, install_id): ...
+    def disconnect(self, install_id): ...
+    def list_files(self, install_id, folder_id=None, page_token=None): ...
+    def download_file(self, file_id, **kwargs): ...
+
+svc = GoogleDriveService(app.client)
+svc.register_routes(app)  # registers all OAuth + sync routes
+```
+
+Routes registered by `register_routes()`:
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/api/auth/status` | GET | OAuth connection status |
+| `/api/auth/url` | GET | OAuth authorization URL |
+| `/api/auth/callback` | POST | Exchange code for tokens |
+| `/api/auth/disconnect` | POST | Revoke tokens |
+| `/api/files` | GET | List files |
+| `/api/sync` | POST | Download + upload a file to Ask DIANA |
+
+## CLI Reference
 
 ```bash
-askdiana init my_extension              # Create full project
+askdiana init my_extension              # Scaffold full project
 askdiana scaffold model TaskTracker     # Generate models/task_tracker.py
 askdiana scaffold service task          # Generate services/task_service.py
 askdiana scaffold controller tasks      # Generate controllers/tasks.py
+askdiana db validate                    # Check schema locally
+askdiana db push --install-id <uuid> --version 1.0.0  # Register + apply schemas
+askdiana package                        # Create deployment ZIP
+askdiana deploy                         # Package + upload to platform
 ```
 
-## Authentication
+## Local Development
 
-Extensions authenticate with two headers:
+### Receiving webhooks with ngrok
+
+```bash
+python app.py           # Start your extension
+
+ngrok http 5000         # In another terminal — creates a public HTTPS tunnel
+# Use the https://xxxx.ngrok.io URL as your extension's webhook URL
+```
+
+### SSL on Windows
+
+If you see SSL errors during local development against a self-signed instance:
+
+```bash
+ASKDIANA_VERIFY_SSL=false
+```
+
+**Do not use this in production.**
+
+### Dynamic base URL
+
+The Ask DIANA backend passes `askdiana_base_url` in every proxied request. The SDK
+uses this to automatically resolve the correct backend URL, so your extension doesn't
+need to hardcode it. This is handled transparently in `ConnectorService.register_routes()`
+and `ChatService.register_routes()`.
+
+## Authentication
 
 | Header | Description |
 |--------|-------------|
 | `X-API-Key` | Your developer API key (`askd_...` format) |
 | `X-Install-Id` | The install UUID (received in webhook payloads) |
 
-**Two-layer authorization:**
+**Two-layer authorization** — both layers must include the required scope:
 - Your API key's scopes control what your extension *can* do
 - The install's `scopes_granted` controls what the user *consented* to
 
-Both must include the required scope for the request to succeed.
-
 ## Webhook Events
 
-| Event | Trigger | Webhook URL |
+| Event | Trigger | Delivered to |
 |-------|---------|-------------|
-| `extension.installed` | User installs your extension | `webhooks.on_install` |
-| `extension.uninstalled` | User uninstalls your extension | `webhooks.on_uninstall` |
-| `document.uploaded` | User uploads a document | `webhooks.on_event` |
-| `chat.created` | User creates a new chat | `webhooks.on_event` |
+| `extension.installed` | User installs your extension | `webhooks.on_install` URL |
+| `extension.uninstalled` | User uninstalls your extension | `webhooks.on_uninstall` URL |
+| `document.uploaded` | User uploads a document | `webhooks.on_event` URL |
+| `chat.created` | User creates a new chat | `webhooks.on_event` URL |
 
-Every webhook includes:
-- `Authorization`: Bearer token (`Bearer askd_...`) — matches your `ASKDIANA_API_KEY`
-- `X-AskDiana-Event`: Event type string
+Every webhook request includes:
+- `Authorization: Bearer <ASKDIANA_API_KEY>` — verify with `verify_bearer_token()`
+- `X-AskDiana-Event` — event type string
 
 ## Permission Scopes
 
 | Scope | Description |
 |-------|-------------|
-| `documents:read` | List and read documents |
-| `documents:write` | Create and modify documents |
-| `chats:read` | List and read chats |
-| `chats:write` | Create and modify chats |
+| `documents:read` | List, search, and read documents |
+| `documents:write` | Upload and delete documents |
+| `chats:read` | List chats and read messages |
+| `chats:write` | Create chats and send messages |
 | `user:profile` | Read user profile info |
+
+Data Storage, Schema Management, and Install Info require no scope.
 
 ## Examples
 
 See the `examples/` directory:
 
 - **[webhook_echo](examples/webhook_echo/)** — Simplest extension: log every webhook event
-- **[document_notifier](examples/document_notifier/)** — React to document uploads, fetch metadata via API
-- **[analytics_dashboard](examples/analytics_dashboard/)** — On install, fetch user data and serve a summary dashboard
-- **[google_drive_connector](examples/google_drive_connector/)** — Full cloud storage connector: OAuth, file browser, sync to Ask DIANA
-- **[data_storage](examples/data_storage/)** — Key-value data storage and custom table definitions with ExtModel
-- **[task_manager](examples/task_manager/)** — Structured layout: models with inheritance, services, controllers, auto-discovery
+- **[google_drive_connector](examples/google_drive_connector/)** — Full OAuth connector with file browser and sync
+- **[gemini_chat](examples/gemini_chat/)** — AI chat extension using ChatService with Gemini
+- **[gamma](examples/gamma/)** — Presentation generation via the Gamma.app API
+- **[notes_app](examples/notes_app/)** — CRUD app with models, services, and controllers
+
+See also the standalone connectors in `connectors/`:
+- **[google_drive](connectors/google_drive/)** — Production Google Drive connector
+- **[onedrive](connectors/onedrive/)** — OneDrive connector
+- **[dropbox](connectors/dropbox/)** — Dropbox connector
 
 ## API Reference
 
-### `AskDianaClient(api_key, base_url, timeout)`
+### `AskDianaClient`
 
-| Method | Scope Required | Description |
-|--------|---------------|-------------|
+| Method | Scope | Description |
+|--------|-------|-------------|
 | `list_documents(install_id, limit, offset)` | `documents:read` | List user's documents |
+| `get_document(install_id, document_id)` | `documents:read` | Get a single document |
+| `search_documents(install_id, query, limit)` | `documents:read` | Semantic document search |
+| `upload_document(install_id, file_content, file_name, source_type, source_reference)` | `documents:write` | Upload a document |
+| `delete_document(install_id, document_id)` | `documents:write` | Delete a document |
 | `list_chats(install_id, limit, offset)` | `chats:read` | List user's chats |
+| `create_chat(install_id, title, message)` | `chats:write` | Create a new chat |
+| `get_chat_messages(install_id, chat_id, limit, offset)` | `chats:read` | Get chat messages |
+| `send_message(install_id, chat_id, message)` | `chats:write` | Send a message |
 | `get_user_profile(install_id)` | `user:profile` | Get user name, email, tenant |
-| `get_install_info(install_id)` | *(none)* | Get install metadata |
-| `upload_document(install_id, file_content, file_name, source_type, source_reference)` | `documents:write` | Upload a document on behalf of user |
+| `get_install_info(install_id)` | *(none)* | Get install metadata and config |
+| `get_config(install_id, key=None)` | *(none)* | Get install config or a single key |
+| `get_scopes(install_id)` | *(none)* | Get granted scopes for this install |
 | `get_data(install_id, namespace, key)` | *(none)* | Get a stored value |
-| `set_data(install_id, namespace, key, value)` | *(none)* | Store a value (create or update) |
+| `set_data(install_id, namespace, key, value)` | *(none)* | Store a value |
 | `delete_data(install_id, namespace, key)` | *(none)* | Delete a stored value |
 | `list_data(install_id, namespace)` | *(none)* | List all keys in a namespace |
-| `register_schema(install_id, version, schema)` | *(none)* | Register a table schema declaration |
-| `apply_schema(install_id, table_name)` | *(none)* | Create/update a registered table |
+| `register_schema(install_id, version, schema)` | *(none)* | Register a table schema |
+| `apply_schema(install_id, table_name)` | *(none)* | Create/update a table |
 
 ### `verify_bearer_token(authorization_header, expected_key)`
 
-Verifies the Bearer token from Ask DIANA. Raises `ValueError` on failure.
+Verifies the Bearer token on incoming webhook requests. Raises `WebhookVerificationError` on failure.
 
-| Parameter | Description |
-|-----------|-------------|
-| `authorization_header` | `Authorization` header value (`Bearer askd_...`) |
-| `expected_key` | Your `ASKDIANA_API_KEY` |
+```python
+from askdiana import verify_bearer_token, WebhookVerificationError
+
+try:
+    verify_bearer_token(
+        authorization_header=request.headers.get("Authorization", ""),
+        expected_key=os.environ["ASKDIANA_API_KEY"],
+    )
+except WebhookVerificationError:
+    return jsonify({"error": "Unauthorized"}), 401
+```
