@@ -252,6 +252,7 @@ def _relay_loop(platform_url: str, api_key: str, port: int, verify_ssl: bool):
                     method=method,
                     url=f"{local_base}{path}",
                     json=body,
+                    headers={"Authorization": f"Bearer {api_key}"},
                     timeout=_RELAY_TIMEOUT,
                 )
                 resp_body = local_resp.json()
@@ -334,8 +335,8 @@ def cmd_dev(args):
         except Exception as e:
             print(f"  Warning: could not read manifest.json: {e}", file=sys.stderr)
 
-    # Register with platform (API key identifies the extension automatically)
-    webhook_url = f"http://localhost:{port}"
+    # Register with platform — use tunnel URL from config if set, else localhost (relay mode)
+    webhook_url = config.get("webhook_url") or f"http://localhost:{port}"
     register_url = f"{platform_url.rstrip('/')}/api/ext/register"
 
     print(f"Registering {webhook_url} with {platform_url}...")
