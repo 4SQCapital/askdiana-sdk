@@ -212,6 +212,73 @@ def cmd_init(args):
     print(f"  askdiana dev --port 5000")
 
 
+_RELAY_TIMEOUT = 60  # seconds — must match CHAT_RESPOND_TIMEOUT on backend
+
+
+def _relay_loop(platform_url: str, api_key: str, port: int, verify_ssl: bool):
+    """Background thread: long-poll the platform relay and forward requests to local Flask."""
+    import time
+    import requests as _req
+
+    poll_url = f"{platform_url.rstrip('/')}/api/ext/relay/poll"
+    respond_base = f"{platform_url.rstrip('/')}/api/ext/relay/respond"
+    local_base = f"http://localhost:{port}"
+    headers = {"X-API-Key": api_key}
+
+    while True:
+        try:
+            resp = _req.get(
+                poll_url,
+                headers=headers,
+                params={"timeout": 30},
+                timeout=35,
+                verify=verify_ssl,
+            )
+            if resp.status_code != 200:
+                time.sleep(2)
+                continue
+
+            incoming = resp.json().get("request")
+            if not incoming:
+                continue  # poll timed out with no request, loop immediately
+
+            request_id = incoming["request_id"]
+            method = incoming.get("method", "POST")
+            path = incoming.get("path", "/api/chat")
+            body = incoming.get("body", {})
+
+            try:
+                local_resp = _req.request(
+                    method=method,
+                    url=f"{local_base}{path}",
+                    json=body,
+                    timeout=_RELAY_TIMEOUT,
+                )
+                resp_body = local_resp.json()
+                status = local_resp.status_code
+            except Exception as e:
+                resp_body = {"error": str(e)}
+                status = 502
+
+            _req.post(
+                f"{respond_base}/{request_id}",
+                json={"status": status, "body": resp_body},
+                headers=headers,
+                timeout=10,
+                verify=verify_ssl,
+            )
+
+        except Exception:
+            time.sleep(2)
+
+
+def _start_relay(platform_url: str, api_key: str, port: int, verify_ssl: bool):
+    import threading
+    print("  Relay active — requests from the platform will be forwarded to your local server.")
+    t = threading.Thread(target=_relay_loop, args=(platform_url, api_key, port, verify_ssl), daemon=True)
+    t.start()
+
+
 def cmd_dev(args):
     """Start the extension in dev mode: register with platform + run Flask.
 
@@ -288,6 +355,7 @@ def cmd_dev(args):
         if resp.status_code == 200:
             data = resp.json()
             print(f"  Registered! version_id={data.get('version_id', 'unknown')}")
+            _start_relay(platform_url, api_key, port, verify_ssl)
         else:
             print(f"  Warning: registration failed ({resp.status_code}): {resp.text[:200]}", file=sys.stderr)
             print("  Continuing anyway — the extension will start but may not receive requests.", file=sys.stderr)
