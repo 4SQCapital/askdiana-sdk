@@ -78,7 +78,7 @@ class ExtensionApp:
 
         # --- SDK client ---
         self._api_key = api_key or os.environ.get("ASKDIANA_API_KEY", "")
-        self._base_url = base_url or ""  # resolved dynamically from incoming requests
+        self._base_url = base_url or os.environ.get("ASKDIANA_BASE_URL", "")
 
         self._verify_ssl = os.environ.get('ASKDIANA_VERIFY_SSL', 'true').lower() not in ('0', 'false', 'no')
         if not self._verify_ssl:

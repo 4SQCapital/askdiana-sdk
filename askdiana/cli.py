@@ -373,6 +373,10 @@ def cmd_dev(args):
 
     env = os.environ.copy()
     env["PORT"] = str(port)
+    if platform_url and not env.get("ASKDIANA_BASE_URL"):
+        env["ASKDIANA_BASE_URL"] = platform_url.rstrip("/")
+    if not verify_ssl:
+        env["ASKDIANA_VERIFY_SSL"] = "false"
     try:
         subprocess.run([sys.executable, "app.py"], env=env)
     except KeyboardInterrupt:
