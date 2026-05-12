@@ -20,7 +20,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Type
 
-from flask import Flask, jsonify, request
+from flask import Flask, g, has_request_context, jsonify, request
 
 from .client import AskDianaClient
 from .discovery import discover_blueprints, discover_models
@@ -85,16 +85,24 @@ class ExtensionApp:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        # Client created lazily on first incoming request via _apply_base_url()
-        self.client: Optional[AskDianaClient] = None
+        # Fallback client for code paths outside a request context (CLI,
+        # setup scripts). Per-request clients are built by
+        # _register_base_url_resolver() and stashed on flask.g so concurrent
+        # requests from different Ask DIANA instances never share base_url.
+        self._fallback_client: Optional[AskDianaClient] = None
         if self._api_key and self._base_url:
-            self.client = AskDianaClient(api_key=self._api_key, base_url=self._base_url, verify_ssl=self._verify_ssl)
+            self._fallback_client = AskDianaClient(
+                api_key=self._api_key,
+                base_url=self._base_url,
+                verify_ssl=self._verify_ssl,
+            )
 
         # --- Registries ---
         self._models: List[Type[ExtModel]] = []
 
         # --- Built-in routes ---
         self._register_health()
+        self._register_base_url_resolver()
 
         # --- Auto-discovery ---
         if auto_discover:
@@ -120,6 +128,30 @@ class ExtensionApp:
     # ------------------------------------------------------------------ #
     # Public API                                                          #
     # ------------------------------------------------------------------ #
+
+    @property
+    def client(self) -> Optional[AskDianaClient]:
+        """Return the active ``AskDianaClient`` for the current context.
+
+        Inside a request context this is the per-request client built from
+        ``askdiana_base_url`` in the payload. Outside a request context
+        (CLI tools, setup scripts) it falls back to the long-lived client
+        constructed from ``ASKDIANA_API_KEY`` + ``ASKDIANA_BASE_URL``.
+        """
+        if has_request_context():
+            req_client = g.get("askdiana_client", None)
+            if req_client is not None:
+                return req_client
+        return self._fallback_client
+
+    @client.setter
+    def client(self, value: Optional[AskDianaClient]) -> None:
+        """Override the fallback (non-request) client.
+
+        Useful in tests and for compatibility with older code that set
+        ``app.client`` directly. Does not affect the per-request client.
+        """
+        self._fallback_client = value
 
     def verify_request(self) -> None:
         """Verify the current Flask request's Bearer token.
@@ -202,6 +234,41 @@ class ExtensionApp:
         @self.flask.route("/health", methods=["GET"])
         def _health():
             return jsonify({"status": "ok"}), 200
+
+    def _register_base_url_resolver(self):
+        """Build a per-request ``AskDianaClient`` from each incoming request.
+
+        Extensions are multi-tenant: the same deployed extension serves
+        multiple Ask DIANA instances concurrently, so the backend includes
+        its own URL in every payload as ``askdiana_base_url``. This hook
+        constructs a fresh client scoped to the inbound request and stores
+        it on ``flask.g`` — ``app.client`` then returns the request-scoped
+        client, eliminating the cross-tenant race that would happen if we
+        mutated a shared client's ``base_url``.
+        """
+
+        @self.flask.before_request
+        def _resolve_base_url():
+            base_url = None
+            try:
+                if request.is_json:
+                    body = request.get_json(silent=True) or {}
+                    if isinstance(body, dict):
+                        data = body.get("data") if isinstance(body.get("data"), dict) else body
+                        base_url = data.get("askdiana_base_url")
+                if not base_url:
+                    base_url = request.args.get("askdiana_base_url")
+            except Exception:
+                base_url = None
+
+            if not (base_url and self._api_key):
+                return
+
+            g.askdiana_client = AskDianaClient(
+                api_key=self._api_key,
+                base_url=base_url.rstrip("/"),
+                verify_ssl=self._verify_ssl,
+            )
 
     @staticmethod
     def _resolve_base_package(import_name: str) -> str:
