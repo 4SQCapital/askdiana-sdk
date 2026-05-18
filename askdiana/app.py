@@ -103,6 +103,7 @@ class ExtensionApp:
         # --- Built-in routes ---
         self._register_health()
         self._register_base_url_resolver()
+        self._register_auth_error_handler()
 
         # --- Auto-discovery ---
         if auto_discover:
@@ -160,7 +161,10 @@ class ExtensionApp:
         this extension's ``ASKDIANA_API_KEY``.
 
         Raises:
-            WebhookVerificationError: If verification fails.
+            WebhookVerificationError: If verification fails. The ExtensionApp
+            registers a Flask error handler that converts this to a 401
+            response (with a JSON body), so handlers don't need their own
+            try/except — an unhandled error here will NOT surface as a 500.
         """
         try:
             verify_bearer_token(
@@ -169,6 +173,24 @@ class ExtensionApp:
             )
         except ValueError as exc:
             raise WebhookVerificationError(str(exc)) from exc
+
+    def _register_auth_error_handler(self) -> None:
+        """Convert unhandled WebhookVerificationError to 401 (not 500).
+
+        Without this, an extension that calls ``app.verify_request()`` without
+        wrapping it in try/except returns Flask's generic "500 Internal Server
+        Error" HTML on bad/missing tokens — which is opaque to the platform
+        dispatcher and indistinguishable from a real crash.
+        """
+        from flask import jsonify
+
+        @self.flask.errorhandler(WebhookVerificationError)
+        def _handle_auth_error(exc):  # noqa: WPS430
+            return jsonify({
+                "ok": False,
+                "error": "unauthorized",
+                "reason": str(exc),
+            }), 401
 
     @property
     def models(self) -> List[Type[ExtModel]]:
