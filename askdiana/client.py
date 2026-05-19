@@ -22,8 +22,18 @@ Usage::
     config = client.get_config(install_id="...", key="google_api_key")
 """
 
+import os
+import threading
+import time
 import requests
 from typing import Optional, Dict, Any, List
+
+
+# How long to cache install metadata (config, scopes) before re-fetching.
+# Tunable via env so deployments with rapid config churn can shorten it.
+# Cache is invalidated immediately on any 4xx response so a revoke or
+# reinstall isn't stuck on stale data for the full TTL.
+_INSTALL_INFO_TTL = int(os.environ.get("ASKDIANA_SDK_CACHE_TTL", "30"))
 
 
 class AskDianaClient:
@@ -53,6 +63,13 @@ class AskDianaClient:
         self._session.headers.update({
             "X-API-Key": self.api_key,
         })
+        # TTL cache: install_id -> (expires_at, install_info_dict)
+        self._install_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+        self._install_cache_lock = threading.Lock()
+
+    def _invalidate_install_cache(self, install_id: str) -> None:
+        with self._install_cache_lock:
+            self._install_cache.pop(install_id, None)
 
     def _request(
         self,
@@ -73,6 +90,11 @@ class AskDianaClient:
             json=json_body,
             timeout=self.timeout,
         )
+        # On any 4xx (revoked key, scope change, install disabled) drop the
+        # cached install snapshot so the next call hits the backend fresh
+        # instead of looping on stale state.
+        if 400 <= response.status_code < 500:
+            self._invalidate_install_cache(install_id)
         response.raise_for_status()
         try:
             return response.json()
@@ -153,23 +175,20 @@ class AskDianaClient:
     def get_install_info(self, install_id: str) -> Dict[str, Any]:
         """Get install metadata (scopes, config, status).
 
-        No specific scope required.
-
-        Returns::
-
-            {
-                "success": true,
-                "install": {
-                    "id": "...", "extension_id": "...",
-                    "tenant_id": "...", "user_id": "...",
-                    "status": "active",
-                    "scopes_granted": ["documents:read"],
-                    "config": {},
-                    "installed_at": "..."
-                }
-            }
+        Cached in-process for ASKDIANA_SDK_CACHE_TTL seconds (default 30).
+        Callers that read multiple config keys (``get_config(... "a")`` then
+        ``get_config(... "b")``) hit the cache and avoid one round-trip per
+        key. The cache is invalidated whenever any request for this install
+        returns 4xx, so revokes/scope changes surface within one failed call.
         """
-        return self._request("GET", "/install", install_id)
+        with self._install_cache_lock:
+            entry = self._install_cache.get(install_id)
+            if entry and entry[0] > time.time():
+                return entry[1]
+        info = self._request("GET", "/install", install_id)
+        with self._install_cache_lock:
+            self._install_cache[install_id] = (time.time() + _INSTALL_INFO_TTL, info)
+        return info
 
     def upload_document(
         self,
