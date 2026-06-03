@@ -5,7 +5,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 
 export interface SettingsProps {
   children: React.ReactNode;
-  initialValues: Record<string, unknown>;
+  initialValues?: Record<string, unknown>;
   title?: string;
   onSaved?: (values: Record<string, unknown>) => void;
 }

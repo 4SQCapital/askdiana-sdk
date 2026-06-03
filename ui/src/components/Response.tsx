@@ -3,8 +3,8 @@ import { getRenderer } from "./blocks/registry";
 import { ErrorBoundary } from "./ErrorBoundary";
 
 export interface ResponseProps {
-  content?: string;
-  blocks?: any[];
+  content?: string; // JSON string: { type: "rich_response", blocks: [...] }
+  blocks?: any[]; // or pass blocks directly
 }
 
 export function Response({ content, blocks }: ResponseProps) {

@@ -9,10 +9,10 @@ export interface ParameterModalProps {
   title?: string;
   submitLabel?: string;
   advanced?: React.ReactNode; // optional advanced section, collapsed by default
-  onSubmit: (values: Record<string, unknown>) => void;
+  onSubmit?: (values: Record<string, unknown>) => void;
 }
 
-export function ParameterModel({
+export function ParameterModal({
   children,
   initialValues = {},
   title = "Run extension",

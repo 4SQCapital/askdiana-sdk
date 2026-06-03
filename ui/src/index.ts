@@ -2,7 +2,7 @@
 import "./styles.css";
 
 export { Settings } from "./components/Settings";
-// export { ParameterModal } from "./components/ParameterModal";
+export { ParameterModal } from "./components/ParameterModal";
 export { FormField, FieldContext } from "./components/FormField";
 export { Response } from "./components/Response";
 export { registerBlock, getRenderer } from "./components/blocks/registry";
