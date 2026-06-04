@@ -1,12 +1,12 @@
 export interface InitData {
   installId: string;
   view: string;
-  theme?: Record<string, string>;
+  theme?: { colorScheme?: "light" | "dark"; [k: string]: unknown };
   config?: Record<string, unknown>;
   params?: Record<string, unknown>;
 }
 
-const HOST_ORIGIN = "*";
+const HOST_ORIGIN = "*"; // tighten to your host origin in production
 
 function post(type: string, payload?: unknown) {
   window.parent?.postMessage(
@@ -41,13 +41,14 @@ export const bridge = {
   /** Ask the host to resolve a dynamic-options `source` path. */
   requestOptions(path: string): Promise<{ value: string; label: string }[]> {
     const id = Math.random().toString(36).slice(2);
+    post("options-request", { id, path });
     return new Promise((resolve) => {
       function handler(e: MessageEvent) {
         const msg = e.data;
         if (
-          msg?.source === "askdianna-host" &&
+          msg?.source === "askdiana-host" &&
           msg.type === "options-response" &&
-          msg.payload.id === id
+          msg.payload?.id === id
         ) {
           window.removeEventListener("message", handler);
           resolve(msg.payload.options || []);

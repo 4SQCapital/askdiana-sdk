@@ -1,12 +1,9 @@
 import React from "react";
 
-interface ErrorBoundaryProps {
-  label?: string;
-  children: React.ReactNode;
-  hasError: boolean;
-}
-
-export class ErrorBoundary extends React.Component<ErrorBoundaryProps> {
+export class ErrorBoundary extends React.Component<
+  { label?: string; children: React.ReactNode },
+  { hasError: boolean }
+> {
   state = { hasError: false };
   static getDerivedStateFromError() {
     return { hasError: true };
@@ -14,7 +11,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="ext-error">
+        <div className="rounded-md border border-dashed border-destructive/40 p-2 text-sm text-destructive">
           {this.props.label || "This view could not be displayed."}
         </div>
       );

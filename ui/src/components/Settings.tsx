@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { FieldContext } from "./FormField";
-import { bridge } from "../bridge";
+import { FieldContext } from "../lib/field-context";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { Button } from "./Button";
+import { bridge } from "../bridge";
 
 export interface SettingsProps {
   children: React.ReactNode;
@@ -18,30 +19,25 @@ export function Settings({
 }: SettingsProps) {
   const [values, setValues] = useState<Record<string, unknown>>(initialValues);
   const [saving, setSaving] = useState(false);
-  const setValue = (name: string, value: unknown) =>
-    setValues((prev) => ({ ...prev, [name]: value }));
-
+  const setValue = (name: string, v: unknown) =>
+    setValues((s) => ({ ...s, [name]: v }));
   const handleSave = () => {
     setSaving(true);
-    bridge.save(values); // host persists via updateInstallConfig
+    bridge.save(values);
     onSaved?.(values);
     setSaving(false);
   };
 
   return (
-    <ErrorBoundary hasError={false}>
+    <ErrorBoundary>
       <FieldContext.Provider value={{ values, setValue }}>
-        <div className="ext-root">
-          <div className="ext-card">
-            <h2 className="ext-title">{title}</h2>
+        <div className="bg-background text-foreground p-4">
+          <div className="flex flex-col gap-4">
+            <h2 className="text-base font-semibold">{title}</h2>
             {children}
-            <button
-              className="ext-btn-primary"
-              disabled={saving}
-              onClick={handleSave}
-            >
+            <Button disabled={saving} onClick={handleSave}>
               {saving ? "Saving..." : "Save"}
-            </button>
+            </Button>
           </div>
         </div>
       </FieldContext.Provider>
