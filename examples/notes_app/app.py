@@ -6,6 +6,7 @@ import os
 import logging
 
 from dotenv import load_dotenv
+from flask import send_from_directory, request, jsonify
 
 load_dotenv()
 
@@ -18,7 +19,6 @@ app = ExtensionApp("notes_app")
 
 @app.flask.route("/webhooks/install", methods=["POST"])
 def on_install():
-    from flask import request, jsonify
     app.verify_request()
 
     body = request.get_json()
@@ -32,17 +32,21 @@ def on_install():
 
 @app.flask.route("/webhooks/uninstall", methods=["POST"])
 def on_uninstall():
-    from flask import request, jsonify
     app.verify_request()
     return jsonify({"ok": True}), 200
 
 
 @app.flask.route("/ui")
 def extension_ui():
-    from flask import send_from_directory
     return send_from_directory(
-        os.path.join(os.path.dirname(__file__), "templates"),
-        "index.html",
+        os.path.join(os.path.dirname(__file__), "static"), "index.html",
+    )
+
+
+@app.flask.route("/ui/<path:filename>")
+def extension_ui_assets(filename):
+    return send_from_directory(
+        os.path.join(os.path.dirname(__file__), "static"), filename,
     )
 
 
