@@ -1,8 +1,15 @@
 import React from "react";
+import { Text } from "./Text";
+import { Alert } from "./Alert";
+import { List } from "./List";
+import { Card } from "./Card";
+import { Code } from "./Code";
+import { Image } from "./Image";
+import { Table } from "./Table";
+import { Divider } from "./Divider";
 
 export type BlockRenderer = (block: any, key: React.Key) => React.ReactNode;
 const registry = new Map<string, BlockRenderer>();
-
 export function registerBlock(type: string, renderer: BlockRenderer) {
   registry.set(type, renderer);
 }
@@ -10,95 +17,23 @@ export function getRenderer(type: string) {
   return registry.get(type);
 }
 
-// ---- built-in blocks ----
-registerBlock("text", (block, key) => (
-  <p key={key} className="ext-text">
-    {block.content}
-  </p>
+registerBlock("text", (b, k) => <Text key={k} content={b.content} />);
+registerBlock("alert", (b, k) => (
+  <Alert key={k} variant={b.variant} content={b.content ?? b.message} />
 ));
-registerBlock("divider", (_block, key) => <hr key={key} />);
-registerBlock("alert", (block, key) => (
-  <div key={key} className={`ext-alert ext-alert-${block.variant || "info"}`}>
-    {block.content ?? block.message}
-  </div>
+registerBlock("list", (b, k) => (
+  <List key={k} items={b.items} ordered={b.ordered} />
 ));
-registerBlock("image", (block, key) => (
-  <figure key={key}>
-    <img
-      src={block.url}
-      alt={block.alt || ""}
-      style={{ maxWidth: "100%", borderRadius: 8 }}
-    />
-    {block.caption && (
-      <figcaption className="ext-muted">{block.caption}</figcaption>
-    )}
-  </figure>
+registerBlock("card", (b, k) => (
+  <Card key={k} title={b.title} body={b.body} accent={b.accent} />
 ));
-registerBlock("list", (block, key) => {
-  const items = (block.items || []).map((it: string, i: number) => (
-    <li key={i}>{it}</li>
-  ));
-  return block.ordered ? (
-    <ol key={key}>{items}</ol>
-  ) : (
-    <ul key={key}>{items}</ul>
-  );
-});
-registerBlock("code", (block, key) => (
-  <pre
-    key={key}
-    style={{
-      background: "var(--ext-muted)",
-      padding: 12,
-      borderRadius: 8,
-      overflow: "auto",
-    }}
-  >
-    <code>{block.content}</code>
-  </pre>
+registerBlock("code", (b, k) => (
+  <Code key={k} content={b.content} language={b.language} />
 ));
-registerBlock("card", (block, key) => (
-  <div
-    key={key}
-    style={{
-      border: "1px solid var(--ext-border)",
-      borderRadius: 8,
-      padding: 12,
-      borderLeft: block.accent ? `3px solid ${block.accent}` : undefined,
-    }}
-  >
-    {block.title && <strong>{block.title}</strong>}
-    {block.body && <p className="ext-text">{block.body}</p>}
-  </div>
+registerBlock("image", (b, k) => (
+  <Image key={k} url={b.url} alt={b.alt} caption={b.caption} />
 ));
-registerBlock("table", (block, key) => (
-  <table key={key} style={{ borderCollapse: "collapse", width: "100%" }}>
-    <thead>
-      <tr>
-        {(block.headers || []).map((h: string, i: number) => (
-          <th
-            key={i}
-            style={{
-              textAlign: "left",
-              borderBottom: "1px solid var(--ext-border)",
-              padding: 6,
-            }}
-          >
-            {h}
-          </th>
-        ))}
-      </tr>
-    </thead>
-    <tbody>
-      {(block.rows || []).map((row: string[], ri: number) => (
-        <tr key={ri}>
-          {row.map((c, ci) => (
-            <td key={ci} style={{ padding: 6 }}>
-              {c}
-            </td>
-          ))}
-        </tr>
-      ))}
-    </tbody>
-  </table>
+registerBlock("table", (b, k) => (
+  <Table key={k} headers={b.headers} rows={b.rows} />
 ));
+registerBlock("divider", (_b, k) => <Divider key={k} />);
