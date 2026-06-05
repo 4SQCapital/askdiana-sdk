@@ -182,15 +182,11 @@ def cmd_init(args):
         print(f"Error: directory '{name}' already exists.", file=sys.stderr)
         sys.exit(1)
 
-    for d in [
-        base,
-        os.path.join(base, "models"),
-        os.path.join(base, "services"),
-        os.path.join(base, "controllers"),
-        os.path.join(base, "views"),
-    ]:
-        os.makedirs(d, exist_ok=True)
+    os.makedirs(base, exist_ok=True)
 
+    # `init` writes files only. Folders (models/, services/, controllers/) are
+    # created lazily the first time you run `askdiana scaffold ...`, so a fresh
+    # project starts minimal instead of carrying empty package directories
     _write(os.path.join(base, "app.py"), APP_TEMPLATE.format(name=name))
     _write(os.path.join(base, "manifest.json"), MANIFEST_TEMPLATE % {"name": name, "slug": slug})
     _write(os.path.join(base, ".env.example"), ENV_TEMPLATE)
@@ -199,16 +195,13 @@ def cmd_init(args):
     _write(os.path.join(base, ".askdiana.json"), json.dumps({
         "platform_url": "https://app.askdiana.ai",
     }, indent=2) + "\n")
-    _write(os.path.join(base, "models", "__init__.py"), MODELS_INIT)
-    _write(os.path.join(base, "services", "__init__.py"), SERVICES_INIT)
-    _write(os.path.join(base, "controllers", "__init__.py"), CONTROLLERS_INIT)
-    _write(os.path.join(base, "views", "__init__.py"), "")
 
     print(f"Created extension project: {name}/")
     print(f"  cd {name}")
     print(f"  pip install askdiana[app]")
     print(f"  # Edit .askdiana.json with your platform URL")
     print(f"  # Edit .env with your ASKDIANA_API_KEY")
+    print(f"  # Add code: askdiana scaffold model|service|controller <name>")
     print(f"  askdiana dev --port 5000")
 
 
@@ -403,8 +396,10 @@ def _scaffold_model(name: str):
     class_name = _to_class_name(name)
     table_name = name.lower().replace(" ", "_")
 
+    _ensure_package("models", MODELS_INIT)
     path = os.path.join(os.getcwd(), "models", f"{table_name}.py")
-    _ensure_dir(path)
+    if _exists_guard(path):
+        return
     _write(path, MODEL_TEMPLATE.format(class_name=class_name, table_name=table_name))
     print(f"Created model: models/{table_name}.py ({class_name})")
 
@@ -413,8 +408,10 @@ def _scaffold_service(name: str):
     class_name = _to_class_name(name)
     slug = name.lower().replace(" ", "_")
 
+    _ensure_package("services", SERVICES_INIT)
     path = os.path.join(os.getcwd(), "services", f"{slug}_service.py")
-    _ensure_dir(path)
+    if _exists_guard(path):
+        return
     _write(path, SERVICE_TEMPLATE.format(class_name=class_name, name=name))
     print(f"Created service: services/{slug}_service.py ({class_name}Service)")
 
@@ -423,8 +420,10 @@ def _scaffold_controller(name: str):
     slug = name.lower().replace(" ", "_")
     bp_var = f"{slug}_bp"
 
+    _ensure_package("controllers", CONTROLLERS_INIT)
     path = os.path.join(os.getcwd(), "controllers", f"{slug}.py")
-    _ensure_dir(path)
+    if _exists_guard(path):
+        return
     _write(path, CONTROLLER_TEMPLATE.format(name=slug, bp_var=bp_var))
     print(f"Created controller: controllers/{slug}.py (Blueprint: {slug})")
 
@@ -680,11 +679,31 @@ def _write(path: str, content: str):
         f.write(content)
 
 
-def _ensure_dir(path: str):
-    d = os.path.dirname(path)
-    if not os.path.exists(d):
-        print(f"Warning: directory '{d}' does not exist. Creating it.", file=sys.stderr)
-        os.makedirs(d, exist_ok=True)
+def _ensure_package(dir_name: str, init_content: str = ""):
+    """Create <cwd>/<dir_name>/ as a Python package if it doesn't exist yet.
+
+    Used by the scaffold commands so folders are created lazily (init no longer
+    makes them). An existing folder is left as-is; we only add __init__.py when
+    it's missing.
+    """
+    d = os.path.join(os.getcwd(), dir_name)
+    is_new = not os.path.isdir(d)
+    os.makedirs(d, exist_ok=True)
+    init_path = os.path.join(d, "__init__.py")
+    if not os.path.exists(init_path):
+        _write(init_path, init_content)
+    if is_new:
+        print(f"Created {dir_name}/ package")
+
+
+def _exists_guard(path: str) -> bool:
+    """Return True (and warn) if *path* already exists, so callers can skip it
+    instead of silently overwriting the developer's file."""
+    if os.path.exists(path):
+        rel = os.path.relpath(path, os.getcwd())
+        print(f"Skipped: {rel} already exists.", file=sys.stderr)
+        return True
+    return False
 
 
 # ------------------------------------------------------------------ #
