@@ -6,6 +6,7 @@ export { Settings } from "./components/Settings";
 export { ParameterModal } from "./components/ParameterModal";
 export { Response } from "./components/Response";
 export { Field } from "./components/Field";
+export { App } from "./components/App";
 
 // shadcn form controls (bind to <Settings> by `name`)
 export { Button, buttonVariants } from "./components/Button";
@@ -18,7 +19,7 @@ export { Select } from "./components/Select";
 // rich-response block tags
 export { Text } from "./components/blocks/Text";
 export { Alert } from "./components/blocks/Alert";
-export { List } from "./components/blocks/List";
+export { List, Item } from "./components/List";
 export { Card } from "./components/blocks/Card";
 export { Code } from "./components/blocks/Code";
 export { Image } from "./components/blocks/Image";
