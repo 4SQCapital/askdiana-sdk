@@ -15,7 +15,7 @@ export default function NotesResponse({
   return (
     <Response>
       <Text>Here are your latest notes:</Text>
-      <List items={["Buy milk", "Call Alex", "Ship the SDK"]} />
+      <List items={["dsafadsf", "asdfsfafas"]} />
       <Alert variant="success">All synced.</Alert>
     </Response>
   );
