@@ -17,6 +17,6 @@
     "type": "iframe",
     "url": "http://localhost:5000/ui",
     "height": "600px",
-    "views": { "open": true, "settings": true }
+    "views": { "app": true, "settings": true }
   }
 }
