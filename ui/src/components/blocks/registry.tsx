@@ -21,9 +21,10 @@ registerBlock("text", (b, k) => <Text key={k} content={b.content} />);
 registerBlock("alert", (b, k) => (
   <Alert key={k} variant={b.variant} content={b.content ?? b.message} />
 ));
-registerBlock("list", (b, k) => (
-  <List key={k} items={b.items} ordered={b.ordered} />
-));
+registerBlock("list", (b, k) => {
+  const items = (b.items || []).map((it: string, i: number) => <li key={i}>{it}</li>);
+  return b.ordered ? <ol key={k}>{items}</ol> : <ul key={k}>{items}</ul>;
+});
 registerBlock("card", (b, k) => (
   <Card key={k} title={b.title} body={b.body} accent={b.accent} />
 ));

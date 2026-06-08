@@ -1,5 +1,5 @@
 import React from "react";
-import { Response, Text, List, type InitData } from "askdiana-ui";
+import { App, Text, List, Item, type InitData } from "askdiana-ui";
 
 export default function NotesApp({
   init,
@@ -8,9 +8,13 @@ export default function NotesApp({
   installId: string;
 }) {
   return (
-    <Response>
-      <Text>Your notes</Text>
-      <List items={["dsafadsf", "asdfsfafas"]} />
-    </Response>
+    <App title="Your notes">
+      <Text>Here's what's on your list:</Text>
+      <List>
+        <Item>Buy milk</Item>
+        <Item>Call Alex</Item>
+        <Item>Ship the SDK</Item>
+      </List>
+    </App>
   );
 }
