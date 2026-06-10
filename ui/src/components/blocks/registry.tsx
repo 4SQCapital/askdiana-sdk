@@ -7,6 +7,13 @@ import { Code } from "./Code";
 import { Image } from "./Image";
 import { Table } from "./Table";
 import { Divider } from "./Divider";
+import { Embed } from "./Embed";
+import { Buttons } from "./Buttons";
+import { Gallery } from "./Gallery";
+import { Stat } from "./Stat";
+import { Badge } from "./Badge";
+import { Progress } from "./Progress";
+import { Timeline } from "./Timeline";
 
 export type BlockRenderer = (block: any, key: React.Key) => React.ReactNode;
 const registry = new Map<string, BlockRenderer>();
@@ -38,3 +45,29 @@ registerBlock("table", (b, k) => (
   <Table key={k} headers={b.headers} rows={b.rows} />
 ));
 registerBlock("divider", (_b, k) => <Divider key={k} />);
+registerBlock("embed", (b, k) => (
+  <Embed
+    key={k}
+    url={b.url}
+    title={b.title}
+    description={b.description}
+    aspectRatio={b.aspect_ratio}
+    allowFullscreen={b.allow_fullscreen}
+  />
+));
+registerBlock("buttons", (b, k) => (
+  <Buttons key={k} items={b.items ?? b.buttons} layout={b.layout} />
+));
+registerBlock("gallery", (b, k) => (
+  <Gallery key={k} items={b.items} columns={b.columns} />
+));
+registerBlock("stat", (b, k) => (
+  <Stat key={k} label={b.label} value={b.value} delta={b.delta} trend={b.trend} />
+));
+registerBlock("badge", (b, k) => (
+  <Badge key={k} content={b.content ?? b.label} variant={b.variant} />
+));
+registerBlock("progress", (b, k) => (
+  <Progress key={k} label={b.label} value={b.value} max={b.max} variant={b.variant} />
+));
+registerBlock("timeline", (b, k) => <Timeline key={k} items={b.items} />);
