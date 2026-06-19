@@ -172,6 +172,45 @@ class AskDianaClient:
         """
         return self._request("GET", "/user/profile", install_id)
 
+    def list_projects(
+        self,
+        install_id: str,
+    ) -> Dict[str, Any]:
+        """List active projects for the install's tenant.
+
+        Requires scope: ``projects:read``
+
+        Returns::
+
+            {
+                "success": true,
+                "projects": [
+                    {"id": "...", "name": "...", "description": "...",
+                     "icon": "...", "color": "..."}
+                ]
+            }
+        """
+        return self._request("GET", "/projects", install_id)
+
+    def list_teams(
+        self,
+        install_id: str,
+    ) -> Dict[str, Any]:
+        """List teams (departments) for the install's tenant.
+
+        Requires scope: ``teams:read``
+
+        Returns::
+
+            {
+                "success": true,
+                "teams": [
+                    {"id": "...", "name": "...", "description": "..."}
+                ]
+            }
+        """
+        return self._request("GET", "/teams", install_id)
+
     def get_install_info(self, install_id: str) -> Dict[str, Any]:
         """Get install metadata (scopes, config, status).
 

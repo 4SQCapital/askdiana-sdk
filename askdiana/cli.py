@@ -384,16 +384,47 @@ def list_{name}():
 # ------------------------------------------------------------------ #
 
 
+def _detect_package_manager() -> str:
+    """Return the first package manager found on PATH: pnpm > yarn > bun > npm."""
+    import shutil
+    for pm in ("pnpm", "yarn", "bun", "npm"):
+        if shutil.which(pm):
+            return pm
+    return "npm"
+
+
 def cmd_init(args):
     """Create a new extension project directory."""
     name = args.name
     slug = name.lower().replace(" ", "_").replace("-", "_")
     base = os.path.join(os.getcwd(), name)
-    ui_mode = args.ui  # "schema" | "react"
+    ui_mode = args.ui  # "schema" | "react" | None (interactive)
 
     if os.path.exists(base):
         print(f"Error: directory '{name}' already exists.", file=sys.stderr)
         sys.exit(1)
+
+    # Interactive prompts when --ui flag is omitted
+    pm_choice = None
+    if ui_mode is None:
+        try:
+            answer = input(
+                "Add React UI components? "
+                "(recommended for rich settings/open views) [y/N]: "
+            ).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        ui_mode = "react" if answer in ("y", "yes") else "schema"
+
+    if ui_mode == "react" and args.ui is None:
+        detected = _detect_package_manager()
+        print(f"Which package manager?  1) npm  2) pnpm  3) yarn  4) bun")
+        pm_map = {"1": "npm", "2": "pnpm", "3": "yarn", "4": "bun", "": detected}
+        try:
+            raw = input(f"Choice [{['1','2','3','4'][['npm','pnpm','yarn','bun'].index(detected)]}]: ").strip()
+        except (EOFError, KeyboardInterrupt, ValueError):
+            raw = ""
+        pm_choice = pm_map.get(raw, detected)
 
     os.makedirs(base, exist_ok=True)
 
@@ -415,16 +446,30 @@ def cmd_init(args):
     if ui_mode == "react":
         _scaffold_react_views(base, name, slug)
 
-    print(f"Created extension project: {name}/  (ui: {ui_mode})")
+    print(f"\nCreated extension project: {name}/  (ui: {ui_mode})")
     print(f"  cd {name}")
     print(f"  pip install askdiana[app]")
     print(f"  # Edit .askdiana.json with your platform URL")
     print(f"  # Edit .env with your ASKDIANA_API_KEY")
     print(f"  # Add code: askdiana scaffold model|service|controller <name>")
     if ui_mode == "react":
-        print(f"  # Build the UI once: cd views && npm install && npm run build")
-        print(f"  # (edit manifest.json's settings_form is NOT used in react mode —")
-        print(f"  #  customize views/settings.tsx / views/app.tsx instead)")
+        if pm_choice:
+            # Auto-install Node dependencies
+            views_path = os.path.join(base, "views")
+            print(f"\nInstalling Node dependencies with {pm_choice}...")
+            result = subprocess.run([pm_choice, "install"], cwd=views_path)
+            if result.returncode == 0:
+                print(f"  Done — run `cd {name}/views && {pm_choice} run build` to build the UI.")
+            else:
+                print(
+                    f"  Note: {pm_choice} install failed — run it manually: "
+                    f"cd {name}/views && {pm_choice} install && {pm_choice} run build",
+                    file=sys.stderr,
+                )
+        else:
+            print(f"  # Build the UI: cd views && npm install && npm run build")
+        print(f"  # (settings_form in manifest.json is not used in react mode —")
+        print(f"  #  customize views/src/settings.tsx / views/src/app.tsx instead)")
     else:
         print(f"  # Customize manifest.json's \"ui.settings_form.fields\" — the host")
         print(f"  #  renders the settings form for you, no frontend code needed")
@@ -1157,11 +1202,12 @@ def main():
     init_p.add_argument(
         "--ui",
         choices=["schema", "react"],
-        default="schema",
+        default=None,
         help=(
             "How the extension's settings/app UI is built: "
-            "'schema' = host renders a form from manifest.json (no frontend code, default), "
-            "'react' = bring your own UI with askdiana-ui + a bundled views/ folder (needs Node)"
+            "'schema' = host renders a form from manifest.json (no frontend code), "
+            "'react' = bring your own UI with askdiana-ui + a bundled views/ folder (needs Node). "
+            "Omit to be prompted interactively."
         ),
     )
 
