@@ -601,11 +601,14 @@ def cmd_dev(args):
             print(f"  Warning: could not read manifest.json: {e}", file=sys.stderr)
 
     if manifest and isinstance(manifest.get("ui"), dict) and manifest["ui"].get("type") == "iframe":
+        # Accept either views/static/index.html (standard scaffold) or
+        # static/index.html (extensions that build directly to the project root).
         views_static = os.path.join(os.getcwd(), "views", "static", "index.html")
-        if not os.path.exists(views_static):
+        root_static  = os.path.join(os.getcwd(), "static", "index.html")
+        if not os.path.exists(views_static) and not os.path.exists(root_static):
             print(
-                "  Note: views/static/index.html not found — run "
-                "`cd views && npm install && npm run build` (or `npm run dev` to watch) "
+                "  Note: static/index.html not found — run "
+                "`npm run build` (or `pnpm run build`) "
                 "before opening the UI.",
                 file=sys.stderr,
             )
