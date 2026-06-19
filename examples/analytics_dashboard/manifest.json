@@ -1,0 +1,28 @@
+{
+  "name": "Analytics Dashboard",
+  "slug": "analytics-dashboard",
+  "version": "1.0.0",
+  "type": "workflow",
+  "description": "A sales and usage analytics dashboard for Ask DIANA, with custom recharts-based charts in both the App panel and chat responses.",
+  "short_description": "Sales and usage analytics with charts",
+  "permissions": ["chats:read", "chats:write"],
+  "webhooks": {
+    "on_install": "https://<your-url>/webhooks/install",
+    "on_uninstall": "https://<your-url>/webhooks/uninstall"
+  },
+  "capabilities": {
+    "chat_respond": "/api/chat"
+  },
+  "chat_config": {
+    "display_name": "Analytics Assistant",
+    "color": "#22C55E",
+    "description": "Ask about revenue, users, conversion, top products, and goals"
+  },
+  "pricing": { "model": "free" },
+  "ui": {
+    "type": "iframe",
+    "url": "http://localhost:5000/ui",
+    "height": "100%",
+    "views": { "app": true, "settings": false }
+  }
+}

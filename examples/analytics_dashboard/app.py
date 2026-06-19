@@ -1,5 +1,5 @@
 """
-notes_app -- Ask DIANA Extension.
+analytics_dashboard -- Ask DIANA Extension.
 """
 
 import os
@@ -12,21 +12,23 @@ load_dotenv()
 
 from askdiana import ExtensionApp
 
+from analytics_chat_service import AnalyticsChatService
+
 logging.basicConfig(level=logging.INFO)
 
-app = ExtensionApp("notes_app")
+app = ExtensionApp("analytics_dashboard")
+
+# --- Chat mode: POST /api/chat ---
+analytics_chat = AnalyticsChatService(app.client)
+analytics_chat.register_routes(app)
 
 
 @app.flask.route("/webhooks/install", methods=["POST"])
 def on_install():
     app.verify_request()
-
     body = request.get_json()
     install_id = body["data"]["install_id"]
-
-    # Register and apply all discovered models
     app.setup_models(install_id, version="1.0.0")
-
     return jsonify({"ok": True}), 200
 
 
@@ -51,5 +53,5 @@ def extension_ui_assets(filename):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 5001))
     app.run(port=port, debug=False)

@@ -93,7 +93,64 @@ if __name__ == "__main__":
     app.run(port=port, debug=True)
 '''
 
-MANIFEST_TEMPLATE = """{
+APP_TEMPLATE_REACT = '''"""
+{name} -- Ask DIANA Extension.
+"""
+
+import os
+import logging
+
+from dotenv import load_dotenv
+load_dotenv()
+
+from flask import send_from_directory
+from askdiana import ExtensionApp
+
+logging.basicConfig(level=logging.INFO)
+
+app = ExtensionApp(__name__)
+
+_VIEWS_STATIC = os.path.join(os.path.dirname(__file__), "views", "static")
+
+
+@app.flask.route("/ui")
+def extension_ui():
+    return send_from_directory(_VIEWS_STATIC, "index.html")
+
+
+@app.flask.route("/ui/<path:filename>")
+def extension_ui_assets(filename):
+    return send_from_directory(_VIEWS_STATIC, filename)
+
+
+@app.flask.route("/webhooks/install", methods=["POST"])
+def on_install():
+    from flask import request, jsonify
+    app.verify_request()
+
+    body = request.get_json()
+    install_id = body["data"]["install_id"]
+
+    # Register and apply all discovered models
+    app.setup_models(install_id, version="1.0.0")
+
+    return jsonify({{"ok": True}}), 200
+
+
+@app.flask.route("/webhooks/uninstall", methods=["POST"])
+def on_uninstall():
+    from flask import request, jsonify
+    app.verify_request()
+    return jsonify({{"ok": True}}), 200
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(port=port, debug=True)
+'''
+
+
+MANIFEST_TEMPLATE_SCHEMA = """{
   "name": "%(name)s",
   "slug": "%(slug)s",
   "version": "1.0.0",
@@ -103,9 +160,164 @@ MANIFEST_TEMPLATE = """{
   "permissions": [],
   "pricing": {
     "model": "free"
+  },
+  "ui": {
+    "type": "schema",
+    "settings_form": {
+      "fields": [
+        {
+          "name": "api_key",
+          "type": "password",
+          "label": "API Key",
+          "required": false,
+          "placeholder": "Enter your API key"
+        }
+      ]
+    }
   }
 }
 """
+
+MANIFEST_TEMPLATE_REACT = """{
+  "name": "%(name)s",
+  "slug": "%(slug)s",
+  "version": "1.0.0",
+  "type": "tool",
+  "description": "TODO: describe your extension",
+  "short_description": "TODO: short description",
+  "permissions": [],
+  "pricing": {
+    "model": "free"
+  },
+  "ui": {
+    "type": "iframe",
+    "url": "http://localhost:5000/ui",
+    "height": "600px",
+    "views": { "settings": true, "app": true }
+  }
+}
+"""
+
+VIEWS_PACKAGE_JSON = """{
+  "name": "%(slug)s-views",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "askdiana-ui": "^0.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.4.0",
+    "vite": "^5.3.0"
+  }
+}
+"""
+
+VIEWS_VITE_CONFIG = """import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  base: "/ui/",
+  plugins: [react()],
+  build: { outDir: "static", emptyOutDir: true },
+});
+"""
+
+VIEWS_INDEX_HTML = """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Extension UI</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+"""
+
+VIEWS_TSCONFIG = """{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src"]
+}
+"""
+
+VIEWS_MAIN_TSX = '''import React from "react";
+import { createRoot } from "react-dom/client";
+import { bridge, applyTheme, type InitData } from "askdiana-ui";
+import Settings from "./settings";
+import App from "./app";
+
+const params = new URLSearchParams(location.search);
+const view = params.get("view") || "settings";
+const installId = params.get("install_id") || "";
+
+function Root() {
+  const [init, setInit] = React.useState<InitData | null>(null);
+  React.useEffect(() => {
+    bridge.ready((data) => { applyTheme(data.theme); setInit(data); });
+    // standalone fallback so `http://localhost:5000/ui?view=settings` still
+    // renders something when opened outside the host iframe
+    const t = setTimeout(
+      () => setInit((s) => s ?? ({ installId, view, config: {}, params: {} } as InitData)),
+      400
+    );
+    return () => clearTimeout(t);
+  }, []);
+
+  if (!init) return <div className="ext-root">Loading…</div>;
+  if (view === "app") return <App init={init} installId={installId} />;
+  return <Settings init={init} installId={installId} />;
+}
+
+createRoot(document.getElementById("root")!).render(<Root />);
+'''
+
+VIEWS_SETTINGS_TSX = '''import React from "react";
+import { Settings, FormField, type InitData } from "askdiana-ui";
+
+export default function ExtensionSettings({ init }: {{ init: InitData; installId: string }}) {{
+  return (
+    <Settings title="Settings" initialValues={{init.config || {{}}}}>
+      <FormField name="api_key" type="password" label="API Key" placeholder="Enter your API key" />
+      {{/* add more <FormField> rows, or any custom JSX, here */}}
+    </Settings>
+  );
+}}
+'''
+
+VIEWS_APP_TSX = '''import React from "react";
+import {{ App, Text, type InitData }} from "askdiana-ui";
+
+export default function {name}App({{ init }}: {{ init: InitData; installId: string }}) {{
+  return (
+    <App title="{name}">
+      <Text>Build your custom UI here — it's just JSX inside &lt;App&gt;.</Text>
+    </App>
+  );
+}}
+'''
+
+
+GITIGNORE_DEFAULT = ".env\n.askdiana.json\n__pycache__/\n*.pyc\n.venv/\n"
+GITIGNORE_REACT = GITIGNORE_DEFAULT + "views/node_modules/\nviews/static/\n"
+
 
 ENV_TEMPLATE = """ASKDIANA_API_KEY=askd_your_key_here
 """
@@ -172,47 +384,99 @@ def list_{name}():
 # ------------------------------------------------------------------ #
 
 
+def _detect_package_manager() -> str:
+    """Return the first package manager found on PATH: pnpm > yarn > bun > npm."""
+    import shutil
+    for pm in ("pnpm", "yarn", "bun", "npm"):
+        if shutil.which(pm):
+            return pm
+    return "npm"
+
+
 def cmd_init(args):
     """Create a new extension project directory."""
     name = args.name
     slug = name.lower().replace(" ", "_").replace("-", "_")
     base = os.path.join(os.getcwd(), name)
+    ui_mode = args.ui  # "schema" | "react" | None (interactive)
 
     if os.path.exists(base):
         print(f"Error: directory '{name}' already exists.", file=sys.stderr)
         sys.exit(1)
 
-    for d in [
-        base,
-        os.path.join(base, "models"),
-        os.path.join(base, "services"),
-        os.path.join(base, "controllers"),
-        os.path.join(base, "views"),
-    ]:
-        os.makedirs(d, exist_ok=True)
+    # Interactive prompts when --ui flag is omitted
+    pm_choice = None
+    if ui_mode is None:
+        try:
+            answer = input(
+                "Add React UI components? "
+                "(recommended for rich settings/open views) [y/N]: "
+            ).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        ui_mode = "react" if answer in ("y", "yes") else "schema"
 
-    _write(os.path.join(base, "app.py"), APP_TEMPLATE.format(name=name))
-    _write(os.path.join(base, "manifest.json"), MANIFEST_TEMPLATE % {"name": name, "slug": slug})
+    if ui_mode == "react" and args.ui is None:
+        detected = _detect_package_manager()
+        print(f"Which package manager?  1) npm  2) pnpm  3) yarn  4) bun")
+        pm_map = {"1": "npm", "2": "pnpm", "3": "yarn", "4": "bun", "": detected}
+        try:
+            raw = input(f"Choice [{['1','2','3','4'][['npm','pnpm','yarn','bun'].index(detected)]}]: ").strip()
+        except (EOFError, KeyboardInterrupt, ValueError):
+            raw = ""
+        pm_choice = pm_map.get(raw, detected)
+
+    os.makedirs(base, exist_ok=True)
+
+    # `init` writes files only. Folders (models/, services/, controllers/) are
+    # created lazily the first time you run `askdiana scaffold ...`, so a fresh
+    # project starts minimal instead of carrying empty package directories
+    app_template = APP_TEMPLATE_REACT if ui_mode == "react" else APP_TEMPLATE
+    manifest_template = MANIFEST_TEMPLATE_REACT if ui_mode == "react" else MANIFEST_TEMPLATE_SCHEMA
+
+    _write(os.path.join(base, "app.py"), app_template.format(name=name))
+    _write(os.path.join(base, "manifest.json"), manifest_template % {"name": name, "slug": slug})
     _write(os.path.join(base, ".env.example"), ENV_TEMPLATE)
     _write(os.path.join(base, "requirements.txt"), "askdiana\nflask\npython-dotenv\n")
-    _write(os.path.join(base, ".gitignore"), ".env\n.askdiana.json\n__pycache__/\n*.pyc\n.venv/\n")
+    _write(os.path.join(base, ".gitignore"), GITIGNORE_REACT if ui_mode == "react" else GITIGNORE_DEFAULT)
     _write(os.path.join(base, ".askdiana.json"), json.dumps({
         "platform_url": "https://app.askdiana.ai",
     }, indent=2) + "\n")
-    _write(os.path.join(base, "models", "__init__.py"), MODELS_INIT)
-    _write(os.path.join(base, "services", "__init__.py"), SERVICES_INIT)
-    _write(os.path.join(base, "controllers", "__init__.py"), CONTROLLERS_INIT)
-    _write(os.path.join(base, "views", "__init__.py"), "")
 
-    print(f"Created extension project: {name}/")
+    if ui_mode == "react":
+        _scaffold_react_views(base, name, slug)
+
+    print(f"\nCreated extension project: {name}/  (ui: {ui_mode})")
     print(f"  cd {name}")
     print(f"  pip install askdiana[app]")
     print(f"  # Edit .askdiana.json with your platform URL")
     print(f"  # Edit .env with your ASKDIANA_API_KEY")
+    print(f"  # Add code: askdiana scaffold model|service|controller <name>")
+    if ui_mode == "react":
+        if pm_choice:
+            # Auto-install Node dependencies
+            views_path = os.path.join(base, "views")
+            print(f"\nInstalling Node dependencies with {pm_choice}...")
+            result = subprocess.run([pm_choice, "install"], cwd=views_path)
+            if result.returncode == 0:
+                print(f"  Done — run `cd {name}/views && {pm_choice} run build` to build the UI.")
+            else:
+                print(
+                    f"  Note: {pm_choice} install failed — run it manually: "
+                    f"cd {name}/views && {pm_choice} install && {pm_choice} run build",
+                    file=sys.stderr,
+                )
+        else:
+            print(f"  # Build the UI: cd views && npm install && npm run build")
+        print(f"  # (settings_form in manifest.json is not used in react mode —")
+        print(f"  #  customize views/src/settings.tsx / views/src/app.tsx instead)")
+    else:
+        print(f"  # Customize manifest.json's \"ui.settings_form.fields\" — the host")
+        print(f"  #  renders the settings form for you, no frontend code needed")
     print(f"  askdiana dev --port 5000")
 
 
-_RELAY_TIMEOUT = 60  # seconds — must match CHAT_RESPOND_TIMEOUT on backend
+_RELAY_TIMEOUT = 600  # seconds — must match CHAT_RESPOND_TIMEOUT/INVOKE_TIMEOUT on backend
 
 
 def _relay_loop(platform_url: str, api_key: str, port: int, verify_ssl: bool):
@@ -287,15 +551,16 @@ def cmd_dev(args):
     The API key identifies the developer and extension — no extension_id or
     version_id needed.
     """
-    port = args.port
-
-    # Load .env
+    # Load .env first so PORT (and other vars) are available below.
     env_path = os.path.join(os.getcwd(), ".env")
     try:
         from dotenv import load_dotenv
         load_dotenv(dotenv_path=env_path, override=True)
     except ImportError:
         pass
+
+    # Port precedence: explicit --port flag > PORT in .env > 5000 default.
+    port = args.port if args.port is not None else int(os.environ.get("PORT", 5000))
 
     # Load project config (only needs platform_url)
     config = _load_project_config()
@@ -334,6 +599,19 @@ def cmd_dev(args):
                 manifest = json.load(f)
         except Exception as e:
             print(f"  Warning: could not read manifest.json: {e}", file=sys.stderr)
+
+    if manifest and isinstance(manifest.get("ui"), dict) and manifest["ui"].get("type") == "iframe":
+        # Accept either views/static/index.html (standard scaffold) or
+        # static/index.html (extensions that build directly to the project root).
+        views_static = os.path.join(os.getcwd(), "views", "static", "index.html")
+        root_static  = os.path.join(os.getcwd(), "static", "index.html")
+        if not os.path.exists(views_static) and not os.path.exists(root_static):
+            print(
+                "  Note: static/index.html not found — run "
+                "`npm run build` (or `pnpm run build`) "
+                "before opening the UI.",
+                file=sys.stderr,
+            )
 
     # Register with platform — use tunnel URL from config if set, else localhost (relay mode)
     webhook_url = config.get("webhook_url") or f"http://localhost:{port}"
@@ -399,12 +677,30 @@ def cmd_scaffold(args):
         sys.exit(1)
 
 
+def _scaffold_react_views(base: str, name: str, slug: str):
+    """Write a minimal askdiana-ui-based views/ project (react UI mode)."""
+    views = os.path.join(base, "views")
+    os.makedirs(views, exist_ok=True)
+
+    _write(os.path.join(views, "package.json"), VIEWS_PACKAGE_JSON % {"slug": slug})
+    _write(os.path.join(views, "vite.config.ts"), VIEWS_VITE_CONFIG)
+    _write(os.path.join(views, "index.html"), VIEWS_INDEX_HTML)
+    _write(os.path.join(views, "tsconfig.json"), VIEWS_TSCONFIG)
+    _write(os.path.join(views, "src", "main.tsx"), VIEWS_MAIN_TSX)
+    _write(os.path.join(views, "src", "settings.tsx"), VIEWS_SETTINGS_TSX)
+    _write(os.path.join(views, "src", "app.tsx"), VIEWS_APP_TSX.format(name=name))
+    _write(os.path.join(views, ".gitignore"), "node_modules/\nstatic/\n")
+
+
+
 def _scaffold_model(name: str):
     class_name = _to_class_name(name)
     table_name = name.lower().replace(" ", "_")
 
+    _ensure_package("models", MODELS_INIT)
     path = os.path.join(os.getcwd(), "models", f"{table_name}.py")
-    _ensure_dir(path)
+    if _exists_guard(path):
+        return
     _write(path, MODEL_TEMPLATE.format(class_name=class_name, table_name=table_name))
     print(f"Created model: models/{table_name}.py ({class_name})")
 
@@ -413,8 +709,10 @@ def _scaffold_service(name: str):
     class_name = _to_class_name(name)
     slug = name.lower().replace(" ", "_")
 
+    _ensure_package("services", SERVICES_INIT)
     path = os.path.join(os.getcwd(), "services", f"{slug}_service.py")
-    _ensure_dir(path)
+    if _exists_guard(path):
+        return
     _write(path, SERVICE_TEMPLATE.format(class_name=class_name, name=name))
     print(f"Created service: services/{slug}_service.py ({class_name}Service)")
 
@@ -423,8 +721,10 @@ def _scaffold_controller(name: str):
     slug = name.lower().replace(" ", "_")
     bp_var = f"{slug}_bp"
 
+    _ensure_package("controllers", CONTROLLERS_INIT)
     path = os.path.join(os.getcwd(), "controllers", f"{slug}.py")
-    _ensure_dir(path)
+    if _exists_guard(path):
+        return
     _write(path, CONTROLLER_TEMPLATE.format(name=slug, bp_var=bp_var))
     print(f"Created controller: controllers/{slug}.py (Blueprint: {slug})")
 
@@ -680,11 +980,31 @@ def _write(path: str, content: str):
         f.write(content)
 
 
-def _ensure_dir(path: str):
-    d = os.path.dirname(path)
-    if not os.path.exists(d):
-        print(f"Warning: directory '{d}' does not exist. Creating it.", file=sys.stderr)
-        os.makedirs(d, exist_ok=True)
+def _ensure_package(dir_name: str, init_content: str = ""):
+    """Create <cwd>/<dir_name>/ as a Python package if it doesn't exist yet.
+
+    Used by the scaffold commands so folders are created lazily (init no longer
+    makes them). An existing folder is left as-is; we only add __init__.py when
+    it's missing.
+    """
+    d = os.path.join(os.getcwd(), dir_name)
+    is_new = not os.path.isdir(d)
+    os.makedirs(d, exist_ok=True)
+    init_path = os.path.join(d, "__init__.py")
+    if not os.path.exists(init_path):
+        _write(init_path, init_content)
+    if is_new:
+        print(f"Created {dir_name}/ package")
+
+
+def _exists_guard(path: str) -> bool:
+    """Return True (and warn) if *path* already exists, so callers can skip it
+    instead of silently overwriting the developer's file."""
+    if os.path.exists(path):
+        rel = os.path.relpath(path, os.getcwd())
+        print(f"Skipped: {rel} already exists.", file=sys.stderr)
+        return True
+    return False
 
 
 # ------------------------------------------------------------------ #
@@ -882,9 +1202,20 @@ def main():
 
     init_p = sub.add_parser("init", help="Create a new extension project")
     init_p.add_argument("name", help="Extension name (used as directory name)")
+    init_p.add_argument(
+        "--ui",
+        choices=["schema", "react"],
+        default=None,
+        help=(
+            "How the extension's settings/app UI is built: "
+            "'schema' = host renders a form from manifest.json (no frontend code), "
+            "'react' = bring your own UI with askdiana-ui + a bundled views/ folder (needs Node). "
+            "Omit to be prompted interactively."
+        ),
+    )
 
     dev_p = sub.add_parser("dev", help="Register with platform and start local dev server")
-    dev_p.add_argument("--port", type=int, default=5000, help="Port to run on (default: 5000)")
+    dev_p.add_argument("--port", type=int, default=None, help="Port to run on (default: $PORT from .env, else 5000)")
 
     scaffold_p = sub.add_parser("scaffold", help="Generate a model, service, or controller")
     scaffold_p.add_argument("kind", choices=["model", "service", "controller"])
