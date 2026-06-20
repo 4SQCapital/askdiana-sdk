@@ -4,6 +4,8 @@ setup(
     name="askdiana",
     version="0.1.0",
     packages=find_packages(),
+    package_data={"askdiana": ["data/*.tgz"]},
+    include_package_data=True,
     install_requires=["requests>=2.20.0", "python-dotenv>=0.19.0"],
     extras_require={
         "app": ["flask>=2.0"],
