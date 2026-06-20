@@ -207,7 +207,7 @@ VIEWS_PACKAGE_JSON = """{
     "build": "vite build"
   },
   "dependencies": {
-    "askdiana-ui": "^0.1.0",
+    "askdiana-ui": "file:./askdiana-ui-0.1.0.tgz",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -387,7 +387,7 @@ VIEWS_TAILWIND_CSS = """@tailwind base;
 
 
 GITIGNORE_DEFAULT = ".env\n.askdiana.json\n__pycache__/\n*.pyc\n.venv/\n"
-GITIGNORE_REACT = GITIGNORE_DEFAULT + "node_modules/\nstatic/\n"
+GITIGNORE_REACT = GITIGNORE_DEFAULT + "node_modules/\nstatic/\naskdiana-ui-*.tgz\n"
 
 
 ENV_TEMPLATE = """ASKDIANA_API_KEY=askd_your_key_here
@@ -749,8 +749,17 @@ def cmd_scaffold(args):
 
 def _scaffold_react_views(base: str, name: str, slug: str):
     """Write a minimal askdiana-ui-based React project (files at root, sources in views/)."""
+    import shutil
+
     views = os.path.join(base, "views")
     os.makedirs(views, exist_ok=True)
+
+    # Copy bundled askdiana-ui tarball so pnpm/npm can install it offline
+    _data_dir = os.path.join(os.path.dirname(__file__), "data")
+    _tgz_name = "askdiana-ui-0.1.0.tgz"
+    _tgz_src = os.path.join(_data_dir, _tgz_name)
+    if os.path.exists(_tgz_src):
+        shutil.copy2(_tgz_src, os.path.join(base, _tgz_name))
 
     # Root-level build tooling
     _write(os.path.join(base, "package.json"), VIEWS_PACKAGE_JSON % {"slug": slug})
