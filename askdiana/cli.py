@@ -249,6 +249,7 @@ const config: Config = {
   content: [
     "./index.html",
     "./views/**/*.{ts,tsx}",
+    "./node_modules/askdiana-ui/src/**/*.{ts,tsx}",
   ],
   theme: {
     extend: {
