@@ -113,7 +113,7 @@ app = ExtensionApp(__name__)
 _VIEWS_STATIC = os.path.join(os.path.dirname(__file__), "static")
 
 
-@app.flask.route("/ui")
+@app.flask.route("/ui", strict_slashes=False)
 def extension_ui():
     return send_from_directory(_VIEWS_STATIC, "index.html")
 
@@ -226,13 +226,16 @@ VIEWS_PACKAGE_JSON = """{
 }
 """
 
-VIEWS_VITE_CONFIG = """import { defineConfig } from "vite";
+VIEWS_VITE_CONFIG = """import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig({
-  base: "/ui/",
-  plugins: [react()],
-  build: { outDir: "static", emptyOutDir: true },
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  return {
+    base: env.VITE_BASE_URL ?? "/ui/",
+    plugins: [react()],
+    build: { outDir: "static", emptyOutDir: true },
+  };
 });
 """
 
