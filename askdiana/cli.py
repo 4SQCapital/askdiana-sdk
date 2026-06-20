@@ -373,6 +373,22 @@ export default function {name}Response({{ init }}: {{ init: InitData; installId:
 }}
 '''
 
+VIEWS_TSCONFIG = """{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["*.ts", "*.tsx", "views/**/*.ts", "views/**/*.tsx"]
+}
+"""
+
 VIEWS_TAILWIND_CSS = """@tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -770,6 +786,7 @@ def _scaffold_react_views(base: str, name: str, slug: str):
     _write(os.path.join(base, "index.html"), VIEWS_INDEX_HTML)
     _write(os.path.join(base, "postcss.config.js"), VIEWS_POSTCSS_CONFIG)
     _write(os.path.join(base, "tailwind.config.ts"), VIEWS_TAILWIND_CONFIG)
+    _write(os.path.join(base, "tsconfig.json"), VIEWS_TSCONFIG)
 
     # React source files in views/
     _write(os.path.join(views, "index.tsx"), VIEWS_INDEX_TSX.format(name=name))
