@@ -110,7 +110,7 @@ logging.basicConfig(level=logging.INFO)
 
 app = ExtensionApp(__name__)
 
-_VIEWS_STATIC = os.path.join(os.path.dirname(__file__), "views", "static")
+_VIEWS_STATIC = os.path.join(os.path.dirname(__file__), "static")
 
 
 @app.flask.route("/ui")
@@ -212,7 +212,14 @@ VIEWS_PACKAGE_JSON = """{
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.40",
+    "tailwindcss": "^3.4.3",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.4.0",
     "vite": "^5.3.0"
   }
@@ -229,6 +236,66 @@ export default defineConfig({
 });
 """
 
+VIEWS_POSTCSS_CONFIG = """export default { plugins: { tailwindcss: {}, autoprefixer: {} } };
+"""
+
+VIEWS_TAILWIND_CONFIG = """import type { Config } from "tailwindcss";
+
+const config: Config = {
+  darkMode: ["class"],
+  content: [
+    "./index.html",
+    "./views/**/*.{ts,tsx}",
+  ],
+  theme: {
+    extend: {
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
+      colors: {
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+      },
+    },
+  },
+  plugins: [require("tailwindcss-animate")],
+};
+export default config;
+"""
+
 VIEWS_INDEX_HTML = """<!doctype html>
 <html lang="en">
   <head>
@@ -238,85 +305,89 @@ VIEWS_INDEX_HTML = """<!doctype html>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/views/index.tsx"></script>
   </body>
 </html>
 """
 
-VIEWS_TSCONFIG = """{
-  "compilerOptions": {
-    "target": "ES2020",
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "jsx": "react-jsx",
-    "strict": true,
-    "skipLibCheck": true,
-    "noEmit": true
-  },
-  "include": ["src"]
-}
-"""
-
-VIEWS_MAIN_TSX = '''import React from "react";
-import { createRoot } from "react-dom/client";
-import { bridge, applyTheme, type InitData } from "askdiana-ui";
-import Settings from "./settings";
-import App from "./app";
+VIEWS_INDEX_TSX = '''// @ts-ignore: side-effect import of CSS module
+import "./tailwind.css";
+import React from "react";
+import {{ createRoot }} from "react-dom/client";
+import {{ bridge, applyTheme, type InitData }} from "askdiana-ui";
+import {name}App from "./app";
+import {name}Response from "./response";
 
 const params = new URLSearchParams(location.search);
-const view = params.get("view") || "settings";
+const view = params.get("view") || "app";
 const installId = params.get("install_id") || "";
 
-function Root() {
+function Root() {{
   const [init, setInit] = React.useState<InitData | null>(null);
-  React.useEffect(() => {
-    bridge.ready((data) => { applyTheme(data.theme); setInit(data); });
-    // standalone fallback so `http://localhost:5000/ui?view=settings` still
-    // renders something when opened outside the host iframe
+  React.useEffect(() => {{
+    bridge.ready((data) => {{ applyTheme(data.theme); setInit(data); }});
     const t = setTimeout(
-      () => setInit((s) => s ?? ({ installId, view, config: {}, params: {} } as InitData)),
-      400
+      () => setInit((s) => s ?? ({{ installId, view, config: {{}}, params: {{}} }} as InitData)),
+      400,
     );
     return () => clearTimeout(t);
-  }, []);
+  }}, []);
 
-  if (!init) return <div className="ext-root">Loading…</div>;
-  if (view === "app") return <App init={init} installId={installId} />;
-  return <Settings init={init} installId={installId} />;
-}
+  if (!init) return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
+  if (view === "response") return <{name}Response init={{init}} installId={{installId}} />;
+  return <{name}App init={{init}} installId={{installId}} />;
+}}
 
 createRoot(document.getElementById("root")!).render(<Root />);
 '''
 
-VIEWS_SETTINGS_TSX = '''import React from "react";
-import { Settings, FormField, type InitData } from "askdiana-ui";
-
-export default function ExtensionSettings({ init }: {{ init: InitData; installId: string }}) {{
-  return (
-    <Settings title="Settings" initialValues={{init.config || {{}}}}>
-      <FormField name="api_key" type="password" label="API Key" placeholder="Enter your API key" />
-      {{/* add more <FormField> rows, or any custom JSX, here */}}
-    </Settings>
-  );
-}}
-'''
-
 VIEWS_APP_TSX = '''import React from "react";
-import {{ App, Text, type InitData }} from "askdiana-ui";
+import {{ App, type InitData }} from "askdiana-ui";
 
 export default function {name}App({{ init }}: {{ init: InitData; installId: string }}) {{
   return (
-    <App title="{name}">
-      <Text>Build your custom UI here — it's just JSX inside &lt;App&gt;.</Text>
+    <App bare>
+      <div className="space-y-2 p-4">
+        <h1 className="text-lg font-semibold">{name}</h1>
+        <p className="text-sm text-muted-foreground">Build your extension UI here.</p>
+      </div>
     </App>
   );
 }}
 '''
 
+VIEWS_RESPONSE_TSX = '''import React from "react";
+import {{ Response, type InitData }} from "askdiana-ui";
+
+export default function {name}Response({{ init }}: {{ init: InitData; installId: string }}) {{
+  const serverBlocks = init.params?.blocks as any[] | undefined;
+  if (serverBlocks) return <Response blocks={{serverBlocks}} />;
+  return (
+    <Response>
+      <p className="text-sm">Build your chat response view here.</p>
+    </Response>
+  );
+}}
+'''
+
+VIEWS_TAILWIND_CSS = """@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+"""
+
 
 GITIGNORE_DEFAULT = ".env\n.askdiana.json\n__pycache__/\n*.pyc\n.venv/\n"
-GITIGNORE_REACT = GITIGNORE_DEFAULT + "views/node_modules/\nviews/static/\n"
+GITIGNORE_REACT = GITIGNORE_DEFAULT + "node_modules/\nstatic/\n"
 
 
 ENV_TEMPLATE = """ASKDIANA_API_KEY=askd_your_key_here
@@ -455,21 +526,20 @@ def cmd_init(args):
     if ui_mode == "react":
         if pm_choice:
             # Auto-install Node dependencies
-            views_path = os.path.join(base, "views")
             print(f"\nInstalling Node dependencies with {pm_choice}...")
-            result = subprocess.run([pm_choice, "install"], cwd=views_path)
+            result = subprocess.run([pm_choice, "install"], cwd=base)
             if result.returncode == 0:
-                print(f"  Done — run `cd {name}/views && {pm_choice} run build` to build the UI.")
+                print(f"  Done — run `cd {name} && {pm_choice} run build` to build the UI.")
             else:
                 print(
                     f"  Note: {pm_choice} install failed — run it manually: "
-                    f"cd {name}/views && {pm_choice} install && {pm_choice} run build",
+                    f"cd {name} && {pm_choice} install && {pm_choice} run build",
                     file=sys.stderr,
                 )
         else:
-            print(f"  # Build the UI: cd views && npm install && npm run build")
+            print(f"  # Build the UI: npm install && npm run build")
         print(f"  # (settings_form in manifest.json is not used in react mode —")
-        print(f"  #  customize views/src/settings.tsx / views/src/app.tsx instead)")
+        print(f"  #  customize views/app.tsx / views/response.tsx instead)")
     else:
         print(f"  # Customize manifest.json's \"ui.settings_form.fields\" — the host")
         print(f"  #  renders the settings form for you, no frontend code needed")
@@ -678,18 +748,22 @@ def cmd_scaffold(args):
 
 
 def _scaffold_react_views(base: str, name: str, slug: str):
-    """Write a minimal askdiana-ui-based views/ project (react UI mode)."""
+    """Write a minimal askdiana-ui-based React project (files at root, sources in views/)."""
     views = os.path.join(base, "views")
     os.makedirs(views, exist_ok=True)
 
-    _write(os.path.join(views, "package.json"), VIEWS_PACKAGE_JSON % {"slug": slug})
-    _write(os.path.join(views, "vite.config.ts"), VIEWS_VITE_CONFIG)
-    _write(os.path.join(views, "index.html"), VIEWS_INDEX_HTML)
-    _write(os.path.join(views, "tsconfig.json"), VIEWS_TSCONFIG)
-    _write(os.path.join(views, "src", "main.tsx"), VIEWS_MAIN_TSX)
-    _write(os.path.join(views, "src", "settings.tsx"), VIEWS_SETTINGS_TSX)
-    _write(os.path.join(views, "src", "app.tsx"), VIEWS_APP_TSX.format(name=name))
-    _write(os.path.join(views, ".gitignore"), "node_modules/\nstatic/\n")
+    # Root-level build tooling
+    _write(os.path.join(base, "package.json"), VIEWS_PACKAGE_JSON % {"slug": slug})
+    _write(os.path.join(base, "vite.config.ts"), VIEWS_VITE_CONFIG)
+    _write(os.path.join(base, "index.html"), VIEWS_INDEX_HTML)
+    _write(os.path.join(base, "postcss.config.js"), VIEWS_POSTCSS_CONFIG)
+    _write(os.path.join(base, "tailwind.config.ts"), VIEWS_TAILWIND_CONFIG)
+
+    # React source files in views/
+    _write(os.path.join(views, "index.tsx"), VIEWS_INDEX_TSX.format(name=name))
+    _write(os.path.join(views, "app.tsx"), VIEWS_APP_TSX.format(name=name))
+    _write(os.path.join(views, "response.tsx"), VIEWS_RESPONSE_TSX.format(name=name))
+    _write(os.path.join(views, "tailwind.css"), VIEWS_TAILWIND_CSS)
 
 
 
