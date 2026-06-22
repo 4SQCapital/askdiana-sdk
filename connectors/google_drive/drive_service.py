@@ -139,9 +139,6 @@ class GoogleDriveService(ConnectorService):
         """List files from the user's Google Drive."""
         access_token = self._get_valid_access_token(install_id)
 
-        if not folder_id:
-            folder_id = self.get_config_value(install_id, "root_folder_id") or None
-
         files_data = google_drive.list_files(
             access_token=access_token,
             folder_id=folder_id,
