@@ -31,6 +31,7 @@ SUPPORTED_MIME_TYPES = [
     "image/jpeg",
     "image/png",
     "image/webp",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]
 
 
