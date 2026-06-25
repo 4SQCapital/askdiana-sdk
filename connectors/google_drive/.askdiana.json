@@ -1,4 +1,5 @@
 {
   "platform_url": "https://4square.askdiana.ai/",
+  "webhook_url": "https://flying-skimmed-audition.ngrok-free.dev",
   "verify_ssl": false
 }

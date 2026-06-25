@@ -302,6 +302,18 @@ class ConnectorService:
                     "Auth callback: install_id=%s redirect_uri=%s code=%s...",
                     install_id, redirect_uri, code[:10] if code else "NONE",
                 )
+                # Idempotency: if tokens are already stored (duplicate callback from
+                # multiple postMessage listeners), skip the single-use code exchange
+                # and return the existing connected status.
+                existing = svc.get_tokens(install_id)
+                if existing and existing.get("access_token"):
+                    logger.info(
+                        "Auth callback: tokens already exist for install_id=%s, skipping exchange",
+                        install_id,
+                    )
+                    result = svc.get_auth_status(install_id)
+                    result["provider"] = svc.provider_name
+                    return flask_jsonify({"success": True, **result}), 200
                 result = svc.handle_auth_callback(install_id, code, redirect_uri)
                 return flask_jsonify({"success": True, **result}), 200
             except Exception as e:

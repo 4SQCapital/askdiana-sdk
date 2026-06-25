@@ -78,4 +78,4 @@ def on_event():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5004))
-    app.run(port=port, debug=True)
+    app.run(port=port, debug=False)

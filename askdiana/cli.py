@@ -221,20 +221,22 @@ VIEWS_PACKAGE_JSON = """{
     "tailwindcss": "^3.4.3",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.4.0",
-    "vite": "^5.3.0"
+    "vite": "^5.3.0",
+    "vite-plugin-singlefile": "^2.3.3"
   }
 }
 """
 
 VIEWS_VITE_CONFIG = """import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import { viteSingleFile } from "vite-plugin-singlefile";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {
     base: env.VITE_BASE_URL ?? "/ui/",
-    plugins: [react()],
-    build: { outDir: "static", emptyOutDir: true },
+    plugins: [react(), viteSingleFile()],
+    build: { outDir: "static", emptyOutDir: true, cssCodeSplit: false },
   };
 });
 """

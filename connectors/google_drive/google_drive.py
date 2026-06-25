@@ -31,6 +31,7 @@ SUPPORTED_MIME_TYPES = [
     "image/jpeg",
     "image/png",
     "image/webp",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]
 
 
@@ -119,18 +120,24 @@ def list_files(
 ) -> dict:
     """List files from Google Drive using an access token."""
     mime_query = " or ".join(f"mimeType='{mt}'" for mt in SUPPORTED_MIME_TYPES)
-    mime_query = f"({mime_query} or mimeType='application/vnd.google-apps.folder')"
 
     if folder_id:
-        query = f"'{folder_id}' in parents and {mime_query} and trashed=false"
+        # Inside a folder: show its direct children (files + sub-folders)
+        folder_mime = f"({mime_query} or mimeType='application/vnd.google-apps.folder')"
+        query = f"'{folder_id}' in parents and {folder_mime} and trashed=false"
     else:
-        query = f"'root' in parents and {mime_query} and trashed=false"
+        # Root view: search ALL of Drive for supported files (no parent filter),
+        # so Shared with me, Shared Drives, and nested files all appear.
+        query = f"({mime_query}) and trashed=false"
 
     params = {
         "q": query,
         "pageSize": page_size,
         "fields": "nextPageToken, files(id, name, mimeType, size, modifiedTime)",
-        "orderBy": "folder,name",
+        "orderBy": "name",
+        "includeItemsFromAllDrives": "true",
+        "supportsAllDrives": "true",
+        "corpora": "allDrives",
     }
     if page_token:
         params["pageToken"] = page_token
