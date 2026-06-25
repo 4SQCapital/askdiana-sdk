@@ -38,6 +38,21 @@ drive = GoogleDriveService(app.client)
 drive.register_routes(app)
 
 
+@app.flask.route("/api/auth/token", methods=["GET"])
+def get_auth_token():
+    """Return a valid access token + Picker API key for the Google Picker (frontend use)."""
+    install_id = request.args.get("install_id")
+    if not install_id:
+        return jsonify({"error": "install_id required"}), 400
+    try:
+        token = drive._get_valid_access_token(install_id)
+        api_key = os.environ.get("GOOGLE_PICKER_API_KEY", "")
+        return jsonify({"access_token": token, "api_key": api_key})
+    except Exception as e:
+        logger.warning(f"Failed to get access token for picker: {e}")
+        return jsonify({"error": "Not connected"}), 401
+
+
 # ================================================================
 # Webhook Handlers
 # ================================================================
