@@ -1,4 +1,3 @@
-import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "../lib/cn";
@@ -12,6 +11,10 @@ export interface SelectProps {
   options?: Option[];
   placeholder?: string;
   className?: string;
+  /** Extra className applied to the dropdown content panel. */
+  contentClassName?: string;
+  /** Inline style applied to the dropdown content panel (e.g. to match a custom background). */
+  contentStyle?: Record<string, string>;
 }
 
 export function Select({
@@ -21,6 +24,8 @@ export function Select({
   options = [],
   placeholder = "Select…",
   className,
+  contentClassName,
+  contentStyle,
 }: SelectProps) {
   const field = useField(name);
   const val = field ? String(field.value ?? "") : value;
@@ -43,7 +48,11 @@ export function Select({
       <SelectPrimitive.Portal>
         <SelectPrimitive.Content
           position="popper"
-          className="relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[side=bottom]:translate-y-1"
+          className={cn(
+            "relative z-50 max-h-96 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[side=bottom]:translate-y-1",
+            contentClassName,
+          )}
+          style={contentStyle}
         >
           <SelectPrimitive.Viewport className="p-1">
             {options.map((o) => {
@@ -53,7 +62,7 @@ export function Select({
                 <SelectPrimitive.Item
                   key={v}
                   value={v}
-                  className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                  className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-white/20 data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                 >
                   <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
                     <SelectPrimitive.ItemIndicator>
