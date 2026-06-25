@@ -19,7 +19,7 @@ GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 GOOGLE_DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
 
 DRIVE_SCOPES = [
-    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/userinfo.email",
 ]
 
