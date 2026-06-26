@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
+# Allowed OAuth callback origins — only these will be accepted as redirect_uri.
+# Add new domains here when onboarding new environments.
+ALLOWED_REDIRECT_URIS = {
+    "https://askdiana.ai/extensions/oauth/callback",
+    "https://askdiana.ai/extensions/oauth/callback/google_drive",
+}
+
 
 class GoogleDriveService(ConnectorService):
     """Connector service for Google Drive with OAuth.
@@ -55,6 +62,9 @@ class GoogleDriveService(ConnectorService):
         self, install_id: str, code: str, redirect_uri: str
     ) -> Dict[str, Any]:
         """Exchange code for tokens, store them, return account info."""
+        if redirect_uri not in ALLOWED_REDIRECT_URIS:
+            raise ValueError(f"Unauthorized redirect_uri: {redirect_uri}")
+
         token_data = google_drive.exchange_code(
             code=code,
             client_id=self.client_id,
@@ -70,6 +80,7 @@ class GoogleDriveService(ConnectorService):
             "refresh_token": token_data.get("refresh_token"),
             "expires_at": time.time() + token_data.get("expires_in", 3600),
             "account_email": user_info.get("email"),
+            "google_id": user_info.get("id"),
         })
 
         return {
@@ -161,6 +172,28 @@ class GoogleDriveService(ConnectorService):
             "files": files,
             "nextPageToken": files_data.get("nextPageToken"),
         }
+
+    def revoke_tokens_for_google_id(self, google_id: str) -> None:
+        """Revoke stored tokens for any install linked to this Google account.
+
+        Called by the RISC webhook when Google reports a security event
+        (account compromise, token revocation, etc.).
+        """
+        try:
+            all_install_ids = self.client.list_data_keys(prefix="tokens:")
+            for key in all_install_ids:
+                install_id = key.replace("tokens:", "")
+                tokens = self.get_tokens(install_id)
+                if not tokens:
+                    continue
+                if tokens.get("google_id") == google_id or tokens.get("account_email", "").lower() == google_id.lower():
+                    logger.warning(
+                        "RISC: revoking tokens for install_id=%s (google_id=%s)",
+                        install_id, google_id,
+                    )
+                    self.disconnect(install_id)
+        except Exception as e:
+            logger.error("RISC: failed to revoke tokens for google_id=%s: %s", google_id, e)
 
     def download_file(
         self,
