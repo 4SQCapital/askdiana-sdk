@@ -575,6 +575,9 @@ def _relay_loop(platform_url: str, api_key: str, port: int, verify_ssl: bool):
     """Background thread: long-poll the platform relay and forward requests to local Flask."""
     import time
     import requests as _req
+    
+    session = _req.Session()
+    session.verify = verify_ssl
 
     poll_url = f"{platform_url.rstrip('/')}/api/ext/relay/poll"
     respond_base = f"{platform_url.rstrip('/')}/api/ext/relay/respond"
@@ -583,12 +586,11 @@ def _relay_loop(platform_url: str, api_key: str, port: int, verify_ssl: bool):
 
     while True:
         try:
-            resp = _req.get(
+            resp = session.get(
                 poll_url,
                 headers=headers,
                 params={"timeout": 30},
                 timeout=35,
-                verify=verify_ssl,
             )
             if resp.status_code != 200:
                 time.sleep(2)
@@ -617,21 +619,79 @@ def _relay_loop(platform_url: str, api_key: str, port: int, verify_ssl: bool):
                 resp_body = {"error": str(e)}
                 status = 502
 
-            _req.post(
-                f"{respond_base}/{request_id}",
-                json={"status": status, "body": resp_body},
-                headers=headers,
-                timeout=10,
-                verify=verify_ssl,
-            )
+            session.post(f"{respond_base}/{request_id}", json={"status": status, "body": resp_body}, headers=headers, timeout=10)
 
         except Exception:
             time.sleep(2)
 
 
+def _relay_ws_loop(platform_url: str, api_key: str, port: int, verify_ssl: bool) -> bool:
+    """Hold one WS connection open; forward pushed requests to local Flask, push
+    responses back. Returns False immediately if the initial connection fails, so
+    the caller can fall back to _relay_loop."""
+    import json as _json
+    import threading
+    import requests as _req
+    import websocket
+
+    ws_scheme = "wss" if platform_url.startswith("https://") else "ws"
+    host = platform_url.split("://", 1)[1].rstrip("/")
+    ws_url = f"{ws_scheme}://{host}/api/ext/relay/ws"
+    local_base = f"http://localhost:{port}"
+
+    def on_message(ws, message):
+        try:
+            incoming = _json.loads(message)
+        except Exception:
+            return
+        if incoming.get("type") != "request":
+            return
+        request_id = incoming["request_id"]
+        try:
+            local_resp = _req.request(
+                method=incoming.get("method", "POST"),
+                url=f"{local_base}{incoming.get('path', '/api/chat')}",
+                json=incoming.get("body", {}),
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=_RELAY_TIMEOUT,
+            )
+            resp_body, status = local_resp.json(), local_resp.status_code
+        except Exception as e:
+            resp_body, status = {"error": str(e)}, 502
+        ws.send(_json.dumps({"type": "response", "request_id": request_id, "body": resp_body, "status": status}))
+
+    def on_error(ws, error):
+        print(f"  Relay WS error: {error}", file=sys.stderr)
+
+    connected = threading.Event()
+
+    def on_open(ws):
+        connected.set()
+
+    app = websocket.WebSocketApp(
+        ws_url, header=[f"X-API-Key: {api_key}"],
+        on_message=on_message, on_error=on_error, on_open=on_open,
+    )
+    t = threading.Thread(
+        target=app.run_forever,
+        kwargs={"sslopt": {"cert_reqs": 0} if not verify_ssl else None, "ping_interval": 25},
+        daemon=True,
+    )
+    t.start()
+    return connected.wait(timeout=5)  # False => caller falls back to HTTP relay
+
+
 def _start_relay(platform_url: str, api_key: str, port: int, verify_ssl: bool):
     import threading
-    print("  Relay active — requests from the platform will be forwarded to your local server.")
+
+    try:
+        if _relay_ws_loop(platform_url, api_key, port, verify_ssl):
+            print("  Relay active (WebSocket) — requests will be forwarded to your local server.")
+            return
+    except Exception as e:
+        print(f"  WS relay unavailable ({e}), falling back to HTTP poll relay.", file=sys.stderr)
+
+    print("  Relay active (HTTP poll) — requests from the platform will be forwarded to your local server.")
     t = threading.Thread(target=_relay_loop, args=(platform_url, api_key, port, verify_ssl), daemon=True)
     t.start()
 
