@@ -6,7 +6,7 @@ setup(
     packages=find_packages(),
     package_data={"askdiana": ["data/*.tgz"]},
     include_package_data=True,
-    install_requires=["requests>=2.20.0", "python-dotenv>=0.19.0"],
+    install_requires=["requests>=2.20.0", "python-dotenv>=0.19.0", "websocket-client>=1.6.0"],
     extras_require={
         "app": ["flask>=2.0"],
     },
