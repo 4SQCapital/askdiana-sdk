@@ -49,7 +49,7 @@ export function Select({
         <SelectPrimitive.Content
           position="popper"
           className={cn(
-            "relative z-50 max-h-96 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[side=bottom]:translate-y-1",
+            "relative z-50 max-h-96 w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[side=bottom]:translate-y-1",
             contentClassName,
           )}
           style={contentStyle}
