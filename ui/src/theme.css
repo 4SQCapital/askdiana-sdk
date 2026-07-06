@@ -1,3 +1,11 @@
+html, body, #root {
+  height: 100%;
+}
+
+#root {
+  overflow-y: auto;
+}
+
 :root {
   --background: 0 0% 100%;
   --foreground: 209 88% 13%;
