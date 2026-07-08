@@ -23,6 +23,6 @@
     "type": "iframe",
     "url": "http://localhost:5000/ui",
     "height": "100%",
-    "views": { "app": true, "settings": false }
+    "views": { "app": true, "settings": false, "response": true }
   }
 }
