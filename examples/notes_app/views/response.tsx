@@ -7,9 +7,13 @@ export default function NotesResponse({
   init: InitData;
   installId: string;
 }) {
-  // If the backend sent a rich_response payload, render it dynamically:
+  // If the host sent the chat reply, render it dynamically. The host passes
+  // init.params = { blocks, content, message_id }: `blocks` when the reply
+  // was a rich_response, `content` (the raw reply string) always.
   const serverBlocks = init.params?.blocks as any[] | undefined;
   if (serverBlocks) return <Response blocks={serverBlocks} />;
+  const content = init.params?.content as string | undefined;
+  if (content) return <Response content={content} />;
 
   // Otherwise hand-author a layout with tags:
   return (

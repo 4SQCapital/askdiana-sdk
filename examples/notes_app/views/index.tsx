@@ -21,6 +21,8 @@ function App() {
       );
       setInit(data);
     });
+    // Inline-embedded views must drive the host iframe's height themselves.
+    const stopResize = view === "response" ? bridge.autoResize() : undefined;
     // standalone fallback so it still renders when opened outside the host
     const t = setTimeout(
       () =>
@@ -29,7 +31,10 @@ function App() {
         ),
       400,
     );
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      stopResize?.();
+    };
   }, []);
 
   if (!init)
