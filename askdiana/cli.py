@@ -193,7 +193,7 @@ MANIFEST_TEMPLATE_REACT = """{
     "type": "iframe",
     "url": "http://localhost:5000/ui",
     "height": "600px",
-    "views": { "settings": true, "app": true }
+    "views": { "settings": true, "app": true, "response": true }
   }
 }
 """
@@ -332,11 +332,13 @@ function Root() {{
   const [init, setInit] = React.useState<InitData | null>(null);
   React.useEffect(() => {{
     bridge.ready((data) => {{ applyTheme(data.theme); setInit(data); }});
+    // Inline-embedded views must drive the host iframe's height themselves.
+    const stopResize = view === "response" ? bridge.autoResize() : undefined;
     const t = setTimeout(
       () => setInit((s) => s ?? ({{ installId, view, config: {{}}, params: {{}} }} as InitData)),
       400,
     );
-    return () => clearTimeout(t);
+    return () => {{ clearTimeout(t); stopResize?.(); }};
   }}, []);
 
   if (!init) return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
@@ -366,8 +368,14 @@ VIEWS_RESPONSE_TSX = '''import React from "react";
 import {{ Response, type InitData }} from "askdiana-ui";
 
 export default function {name}Response({{ init }}: {{ init: InitData; installId: string }}) {{
+  // The host passes the persisted chat reply in init.params:
+  //   blocks     — parsed rich_response blocks (if the reply was one)
+  //   content    — the raw reply string (always present)
+  //   message_id — the chat message id
   const serverBlocks = init.params?.blocks as any[] | undefined;
   if (serverBlocks) return <Response blocks={{serverBlocks}} />;
+  const content = init.params?.content as string | undefined;
+  if (content) return <Response content={{content}} />;
   return (
     <Response>
       <p className="text-sm">Build your chat response view here.</p>

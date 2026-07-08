@@ -7,6 +7,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Custom chat response views** — declaring `"response": true` under `ui.views` in `manifest.json` makes the platform render the extension's own `views/response.tsx` inline in the chat message (iframe at `ui.url?view=response`) instead of the host-rendered `rich_response` blocks. After `ready`, the host `init` carries `params: { blocks, content, message_id }`. Falls back to host rendering if the view fails to load.
+- **`bridge.autoResize()`** (askdiana-ui) — keeps the host iframe sized to the document via a `ResizeObserver` posting `resize` messages; returns a disconnect function. The `askdiana init` scaffold's `views/index.tsx` now calls it for the response view.
+- Scaffold manifest now declares `"response": true`; scaffold `views/response.tsx` renders `init.params.blocks` / `init.params.content` before its hand-authored fallback.
+- `examples/notes_app` and `examples/analytics_dashboard` updated to demonstrate the response view end-to-end.
+
+---
+
 ## [0.1.0] — 2026-05-01
 
 ### Added

@@ -8,6 +8,13 @@ export interface ButtonItemProps {
   url?: string;
   style?: "primary" | "secondary" | "outline" | "ghost" | "destructive";
   icon?: string;
+  /**
+   * Marks this link as a file download rather than a page to open. Skips
+   * `target="_blank"` (which otherwise flashes an empty tab for a same-page
+   * download) and adds the `download` attribute. Pass a string to suggest
+   * a filename, or `true` to just mark it as a download.
+   */
+  download?: string | boolean;
 }
 
 const VARIANT_MAP: Record<
@@ -21,19 +28,21 @@ const VARIANT_MAP: Record<
   destructive: "destructive",
 };
 
-export function ButtonItem({ label, url, style = "outline", icon }: ButtonItemProps) {
+export function ButtonItem({ label, url, style = "outline", icon, download }: ButtonItemProps) {
   const isMail = url?.startsWith("mailto:");
+  const isDownload = Boolean(download);
   return (
     <Button variant={VARIANT_MAP[style] ?? "outline"} size="sm" asChild={!!url}>
       {url ? (
         <a
           href={url}
-          target={isMail ? undefined : "_blank"}
-          rel={isMail ? undefined : "noopener noreferrer"}
+          target={isMail || isDownload ? undefined : "_blank"}
+          rel={isMail || isDownload ? undefined : "noopener noreferrer"}
+          download={isDownload ? (typeof download === "string" ? download : "") : undefined}
         >
           {icon && <span className="mr-1.5">{icon}</span>}
           {label}
-          {!isMail && <ExternalLink className="ml-1.5 h-3 w-3 opacity-60" />}
+          {!isMail && !isDownload && <ExternalLink className="ml-1.5 h-3 w-3 opacity-60" />}
         </a>
       ) : (
         <>

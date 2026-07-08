@@ -216,7 +216,7 @@ my_extension/
 │   └── task_service.py
 ├── controllers/        # Flask Blueprints (auto-discovered)
 │   └── tasks.py
-└── views/              # UI templates (reserved)
+└── views/              # React iframe UI (Vite + askdiana-ui), built to static/
 ```
 
 **app.py:**
@@ -289,6 +289,42 @@ class GeminiChatService(ChatService):
 svc = GeminiChatService(app.client)
 svc.register_routes(app)  # registers POST /api/chat
 ```
+
+**Rich responses.** Instead of plain text, `respond()` may return a JSON string
+`{"type": "rich_response", "blocks": [...]}`. The platform renders the blocks
+natively in the chat thread (types: `text`, `table`, `chart`, `list`, `alert`,
+`card`, `code`, `image`, `buttons`, `embed`, `divider`, `gallery`, `stat`,
+`badge`, `progress`, `timeline`). See `examples/analytics_dashboard/analytics_chat_service.py`.
+
+**Custom response views (`views/response.tsx`).** Declare
+`"response": true` under `ui.views` in `manifest.json` and the platform will
+render your extension's **own React UI inline in the chat message** (an iframe
+at `ui.url?view=response&install_id=...`) instead of the host-rendered blocks:
+
+```json
+"ui": {
+  "type": "iframe",
+  "url": "http://localhost:5000/ui",
+  "views": { "settings": true, "app": true, "response": true }
+}
+```
+
+After the view posts `ready`, the host sends `init` with:
+
+```ts
+init.params = {
+  blocks,      // parsed rich_response blocks (undefined if the reply wasn't one)
+  content,     // the raw reply string your respond() returned (always present)
+  message_id,  // the chat message id
+}
+```
+
+Render with the `askdiana-ui` `Response` component (`<Response blocks={...}/>`
+or `<Response content={...}/>`) or build a fully custom layout. Call
+`bridge.autoResize()` in the response view so the host iframe follows your
+content height (the scaffold's `views/index.tsx` already does both). If the
+view fails to load, the platform falls back to host-rendered blocks — so the
+same `respond()` payload works with or without the view.
 
 ### 8. File connector extensions (ConnectorService)
 

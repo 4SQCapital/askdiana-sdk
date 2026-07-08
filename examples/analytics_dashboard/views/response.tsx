@@ -7,6 +7,8 @@ import { kpis } from "./data/mock";
  * `?view=chart`, which renders the full RevenueChart inline (see chart.tsx).
  */
 export default function AnalyticsResponse({ init }: { init: InitData; installId: string }) {
+  // The host passes init.params = { blocks, content, message_id }: `blocks`
+  // when the reply was a rich_response, `content` (raw string) always.
   const serverBlocks = init.params?.blocks as any[] | undefined;
   if (serverBlocks) return <Response blocks={serverBlocks} />;
 
