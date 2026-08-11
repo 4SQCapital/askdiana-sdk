@@ -17,6 +17,7 @@ Usage::
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -207,7 +208,7 @@ VIEWS_PACKAGE_JSON = """{
     "build": "vite build"
   },
   "dependencies": {
-    "askdiana-ui": "file:./askdiana-ui-0.1.0.tgz",
+    "askdiana-ui": "file:./%(tgz)s",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -321,8 +322,8 @@ import "./tailwind.css";
 import React from "react";
 import {{ createRoot }} from "react-dom/client";
 import {{ bridge, applyTheme, type InitData }} from "askdiana-ui";
-import {name}App from "./app";
-import {name}Response from "./response";
+import {component}App from "./app";
+import {component}Response from "./response";
 
 const params = new URLSearchParams(location.search);
 const view = params.get("view") || "app";
@@ -332,8 +333,14 @@ function Root() {{
   const [init, setInit] = React.useState<InitData | null>(null);
   React.useEffect(() => {{
     bridge.ready((data) => {{ applyTheme(data.theme); setInit(data); }});
-    // Inline-embedded views must drive the host iframe's height themselves.
-    const stopResize = view === "response" ? bridge.autoResize() : undefined;
+    // Inline-embedded views (chat response) and the side panel (open/app)
+    // must drive the host iframe's height themselves so it shrinks/grows
+    // with content instead of stretching to a fixed panel height. Only the
+    // settings dialog keeps the host-fixed-height + internal-scroll behavior.
+    const stopResize =
+      view === "response" || view === "open" || view === "app"
+        ? bridge.autoResize()
+        : undefined;
     const t = setTimeout(
       () => setInit((s) => s ?? ({{ installId, view, config: {{}}, params: {{}} }} as InitData)),
       400,
@@ -342,8 +349,8 @@ function Root() {{
   }}, []);
 
   if (!init) return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
-  if (view === "response") return <{name}Response init={{init}} installId={{installId}} />;
-  return <{name}App init={{init}} installId={{installId}} />;
+  if (view === "response") return <{component}Response init={{init}} installId={{installId}} />;
+  return <{component}App init={{init}} installId={{installId}} />;
 }}
 
 createRoot(document.getElementById("root")!).render(<Root />);
@@ -352,7 +359,7 @@ createRoot(document.getElementById("root")!).render(<Root />);
 VIEWS_APP_TSX = '''import React from "react";
 import {{ App, type InitData }} from "askdiana-ui";
 
-export default function {name}App({{ init }}: {{ init: InitData; installId: string }}) {{
+export default function {component}App({{ init }}: {{ init: InitData; installId: string }}) {{
   return (
     <App bare>
       <div className="space-y-2 p-4">
@@ -367,7 +374,7 @@ export default function {name}App({{ init }}: {{ init: InitData; installId: stri
 VIEWS_RESPONSE_TSX = '''import React from "react";
 import {{ Response, type InitData }} from "askdiana-ui";
 
-export default function {name}Response({{ init }}: {{ init: InitData; installId: string }}) {{
+export default function {component}Response({{ init }}: {{ init: InitData; installId: string }}) {{
   // The host passes the persisted chat reply in init.params:
   //   blocks     — parsed rich_response blocks (if the reply was one)
   //   content    — the raw reply string (always present)
@@ -497,7 +504,7 @@ def _detect_package_manager() -> str:
 def cmd_init(args):
     """Create a new extension project directory."""
     name = args.name
-    slug = name.lower().replace(" ", "_").replace("-", "_")
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     base = os.path.join(os.getcwd(), name)
     ui_mode = args.ui  # "schema" | "react" | None (interactive)
 
@@ -538,7 +545,7 @@ def cmd_init(args):
     _write(os.path.join(base, "app.py"), app_template.format(name=name))
     _write(os.path.join(base, "manifest.json"), manifest_template % {"name": name, "slug": slug})
     _write(os.path.join(base, ".env.example"), ENV_TEMPLATE)
-    _write(os.path.join(base, "requirements.txt"), "askdiana\nflask\npython-dotenv\n")
+    _write(os.path.join(base, "requirements.txt"), "askdiana\nflask\npython-dotenv\nrequests\n")
     _write(os.path.join(base, ".gitignore"), GITIGNORE_REACT if ui_mode == "react" else GITIGNORE_DEFAULT)
     _write(os.path.join(base, ".askdiana.json"), json.dumps({
         "platform_url": "https://app.askdiana.ai",
@@ -839,6 +846,7 @@ def cmd_scaffold(args):
 
 def _scaffold_react_views(base: str, name: str, slug: str):
     """Write a minimal askdiana-ui-based React project (files at root, sources in views/)."""
+    import glob
     import shutil
 
     views = os.path.join(base, "views")
@@ -846,13 +854,21 @@ def _scaffold_react_views(base: str, name: str, slug: str):
 
     # Copy bundled askdiana-ui tarball so pnpm/npm can install it offline
     _data_dir = os.path.join(os.path.dirname(__file__), "data")
-    _tgz_name = "askdiana-ui-0.1.0.tgz"
-    _tgz_src = os.path.join(_data_dir, _tgz_name)
-    if os.path.exists(_tgz_src):
+    _candidates = sorted(glob.glob(os.path.join(_data_dir, "askdiana-ui-*.tgz")))
+    if _candidates:
+        _tgz_src = _candidates[-1]
+        _tgz_name = os.path.basename(_tgz_src)
         shutil.copy2(_tgz_src, os.path.join(base, _tgz_name))
+    else:
+        _tgz_name = "askdiana-ui-0.2.0.tgz"
+        print(
+             f"Warning: no askdiana-ui tarball in {_data_dir} — "
+             f"package.json will reference {_tgz_name}, which you must supply.",
+             file=sys.stderr,
+         )
 
     # Root-level build tooling
-    _write(os.path.join(base, "package.json"), VIEWS_PACKAGE_JSON % {"slug": slug})
+    _write(os.path.join(base, "package.json"), VIEWS_PACKAGE_JSON % {"slug": slug, "tgz": _tgz_name})
     _write(os.path.join(base, "vite.config.ts"), VIEWS_VITE_CONFIG)
     _write(os.path.join(base, "index.html"), VIEWS_INDEX_HTML)
     _write(os.path.join(base, "postcss.config.js"), VIEWS_POSTCSS_CONFIG)
@@ -860,9 +876,14 @@ def _scaffold_react_views(base: str, name: str, slug: str):
     _write(os.path.join(base, "tsconfig.json"), VIEWS_TSCONFIG)
 
     # React source files in views/
-    _write(os.path.join(views, "index.tsx"), VIEWS_INDEX_TSX.format(name=name))
-    _write(os.path.join(views, "app.tsx"), VIEWS_APP_TSX.format(name=name))
-    _write(os.path.join(views, "response.tsx"), VIEWS_RESPONSE_TSX.format(name=name))
+    # `component` is the identifier the templates use for import and function
+    # names; `name` stays the human-readable title shown in the UI. Passing the
+    # raw name into an identifier position produced `import my-test-extApp from
+    # "./app"` for any hyphenated name -- a project that could not build at all.
+    component = _to_component_name(name)
+    _write(os.path.join(views, "index.tsx"), VIEWS_INDEX_TSX.format(name=name, component=component))
+    _write(os.path.join(views, "app.tsx"), VIEWS_APP_TSX.format(name=name, component=component))
+    _write(os.path.join(views, "response.tsx"), VIEWS_RESPONSE_TSX.format(name=name, component=component))
     _write(os.path.join(views, "tailwind.css"), VIEWS_TAILWIND_CSS)
 
 
@@ -1147,6 +1168,24 @@ def _cmd_db_push(args):
 def _to_class_name(name: str) -> str:
     """Convert 'task_tracker' or 'task' to 'TaskTracker' or 'Task'."""
     return "".join(word.capitalize() for word in name.replace("-", "_").split("_"))
+
+
+def _to_component_name(name: str) -> str:
+    """Convert an extension name into a valid JS/TS identifier prefix.
+
+    'my-test-ext' -> 'MyTestExt', 'notes app' -> 'NotesApp', '2fa' -> 'Ext2fa'.
+
+    Distinct from _to_class_name because the generated React sources interpolate
+    this straight into `import ...` and `export default function ...` positions,
+    where anything non-alphanumeric is a syntax error. _to_class_name only
+    strips hyphens and underscores (leaving spaces intact) and its .capitalize()
+    would flatten internal capitals, turning 'CuraAI' into 'Curaai'.
+    """
+    parts = [p for p in re.split(r"[^A-Za-z0-9]+", name) if p]
+    ident = "".join(p[:1].upper() + p[1:] for p in parts)
+    if not ident or ident[0].isdigit():
+        ident = f"Ext{ident}"
+    return ident
 
 
 def _write(path: str, content: str):
