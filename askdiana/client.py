@@ -211,6 +211,60 @@ class AskDianaClient:
         """
         return self._request("GET", "/teams", install_id)
 
+    def list_project_documents(
+        self,
+        install_id: str,
+        project_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """List documents shared into a project.
+
+        The installing user must be a member of the project; otherwise the
+        call returns 404.
+
+        Requires scopes: ``projects:read`` and ``documents:read``
+
+        Returns::
+
+            {
+                "success": true,
+                "project": {"id": "...", "name": "..."},
+                "documents": [{"id": "...", "file_name": "...", ...}]
+            }
+        """
+        return self._request(
+            "GET", f"/projects/{project_id}/documents", install_id,
+            params={"limit": limit, "offset": offset},
+        )
+
+    def list_team_documents(
+        self,
+        install_id: str,
+        team_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """List documents shared with a team (department).
+
+        The installing user must be a member of the team; otherwise the call
+        returns 404.
+
+        Requires scopes: ``teams:read`` and ``documents:read``
+
+        Returns::
+
+            {
+                "success": true,
+                "team": {"id": "...", "name": "..."},
+                "documents": [{"id": "...", "file_name": "...", ...}]
+            }
+        """
+        return self._request(
+            "GET", f"/teams/{team_id}/documents", install_id,
+            params={"limit": limit, "offset": offset},
+        )
+
     def get_install_info(self, install_id: str) -> Dict[str, Any]:
         """Get install metadata (scopes, config, status).
 
