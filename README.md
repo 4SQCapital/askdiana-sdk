@@ -457,7 +457,7 @@ See also the standalone connectors in `connectors/`:
 |--------|-------|-------------|
 | `list_documents(install_id, limit, offset)` | `documents:read` | List user's documents |
 | `get_document(install_id, document_id)` | `documents:read` | Get a single document |
-| `search_documents(install_id, query, limit)` | `documents:read` | Semantic document search |
+| `get_document_content(install_id, document_id)` | `documents:read` | Get a document's extracted text |
 | `upload_document(install_id, file_content, file_name, source_type, source_reference)` | `documents:write` | Upload a document |
 | `delete_document(install_id, document_id)` | `documents:write` | Delete a document |
 | `list_chats(install_id, limit, offset)` | `chats:read` | List user's chats |

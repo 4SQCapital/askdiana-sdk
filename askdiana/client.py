@@ -15,8 +15,8 @@ Usage::
     for doc in docs["documents"]:
         print(doc["file_name"])
 
-    # Search documents
-    results = client.search_documents(install_id="...", query="quarterly report")
+    # Read a document's extracted text
+    content = client.get_document_content(install_id="...", document_id="...")["content"]
 
     # Get user config
     config = client.get_config(install_id="...", key="google_api_key")
@@ -282,36 +282,6 @@ class AskDianaClient:
                 f"{response.text[:200]}"
             )
 
-    def search_documents(
-        self,
-        install_id: str,
-        query: str,
-        limit: int = 10,
-    ) -> Dict[str, Any]:
-        """Search documents by content query.
-
-        Requires scope: ``documents:read``
-
-        Args:
-            install_id: Install UUID from webhook payload.
-            query: Search query string.
-            limit: Maximum number of results.
-
-        Returns::
-
-            {
-                "success": true,
-                "results": [
-                    {"id": "...", "file_name": "...", "score": 0.95,
-                     "snippet": "...matching text..."}
-                ]
-            }
-        """
-        return self._request(
-            "POST", "/documents/search", install_id,
-            json_body={"query": query, "limit": limit},
-        )
-
     def get_document(
         self,
         install_id: str,
@@ -333,6 +303,35 @@ class AskDianaClient:
             }
         """
         return self._request("GET", f"/documents/{document_id}", install_id)
+
+    def get_document_content(
+        self,
+        install_id: str,
+        document_id: str,
+    ) -> Dict[str, Any]:
+        """Get the extracted text of a document.
+
+        Text is re-extracted from the original upload when it is still on disk
+        (``content_source: "file"``), otherwise reassembled from the document's
+        indexed chunks (``content_source: "chunks"``).
+
+        Requires scope: ``documents:read``
+
+        Args:
+            install_id: Install UUID from webhook payload.
+            document_id: The document UUID.
+
+        Returns::
+
+            {
+                "success": true,
+                "document": {"id": "...", "file_name": "...", ...},
+                "content": "the extracted text...",
+                "content_source": "file",
+                "length": 12345
+            }
+        """
+        return self._request("GET", f"/documents/{document_id}/content", install_id)
 
     def delete_document(
         self,
