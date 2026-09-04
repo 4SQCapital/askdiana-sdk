@@ -30,7 +30,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - **`register_all_models()`** — batch-register multiple `ExtModel` subclasses in a single API call.
 - **CLI** — `askdiana init`, `askdiana scaffold model/service/controller`, `askdiana dev` commands.
 - **Examples**: `webhook_echo`, `document_notifier`, `analytics_dashboard`, `google_drive_connector`, `data_storage`, `task_manager`, `gamma`, `gemini_chat`, `sar_workflow`.
-- **`AskDianaClient`** methods: `list_documents`, `get_document`, `get_document_content`, `upload_document`, `delete_document`, `list_chats`, `create_chat`, `get_chat_messages`, `send_message`, `get_user_profile`, `get_install_info`, `get_config`, `get_scopes`, `get_data`, `set_data`, `delete_data`, `list_data`, `register_schema`, `apply_schema`.
+- **`AskDianaClient`** methods: `list_documents`, `get_document`, `get_document_content`, `list_project_documents`, `list_team_documents`, `upload_document`, `delete_document`, `list_chats`, `create_chat`, `get_chat_messages`, `send_message`, `get_user_profile`, `get_install_info`, `get_config`, `get_scopes`, `get_data`, `set_data`, `delete_data`, `list_data`, `register_schema`, `apply_schema`.
 
 ### Changed
 
