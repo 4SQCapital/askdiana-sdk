@@ -27,10 +27,14 @@ def request(
         try:
             response = _session.request(method, url, timeout=timeout, **kwargs)
         except (requests.ConnectionError, requests.Timeout):
-            if response.status_code in C.RETRY_STATUSES and attempt < attempts:
-                logger.info("HTTP %s from %s, retry %d/%d", response.status_code, url, attempt, attempts - 1)
-                _backoff(attempt, retry_after=response.headers.get("Retry-After"))
-                continue
+            if attempt == attempts:
+                raise
+            _backoff(attempt, retry_after=None)
+            continue
+        if response.status_code in C.RETRY_STATUSES and attempt < attempts:
+            logger.info("HTTP %s from %s, retry %d/%d", response.status_code, url, attempt, attempts - 1)
+            _backoff(attempt, retry_after=response.headers.get("Retry-After"))
+            continue
         return response
     raise RuntimeError("unreachable")
 
