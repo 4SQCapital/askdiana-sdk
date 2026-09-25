@@ -9,8 +9,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] — 2026-09-25
+
 ### Added
 
+- **`askdiana.erp` connector kit** — build ERP/CRM connector extensions from a YAML pack. `ErpExtension(pack_path, demo_provider=...).mount(app)` registers auth, chat, dashboard and data routes. Supports `oauth2`, `token`, `basic` and `session` logins, paging, caching, retries, and any OpenAI-compatible or Anthropic LLM (`LLM_*` env vars; legacy `GENIUS2_*` still read).
+- `pyyaml>=6.0` added to the `app` extra.
+- `tests/erp/` — unit tests for the kit.
 - **Custom chat response views** — declaring `"response": true` under `ui.views` in `manifest.json` makes the platform render the extension's own `views/response.tsx` inline in the chat message (iframe at `ui.url?view=response`) instead of the host-rendered `rich_response` blocks. After `ready`, the host `init` carries `params: { blocks, content, message_id }`. Falls back to host rendering if the view fails to load.
 - **`bridge.autoResize()`** (askdiana-ui) — keeps the host iframe sized to the document via a `ResizeObserver` posting `resize` messages; returns a disconnect function. The `askdiana init` scaffold's `views/index.tsx` now calls it for the response view.
 - Scaffold manifest now declares `"response": true`; scaffold `views/response.tsx` renders `init.params.blocks` / `init.params.content` before its hand-authored fallback.
