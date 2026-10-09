@@ -1,0 +1,6 @@
+/*
+ * Optional look for this extension: colours and shapes on top of the shared views.
+ * Override askdiana-ui's theme variables (--primary, --background, --radius, ...) and target the hook classes
+ * the components carry: .erp-app .erp-header .erp-brand-mark .erp-tabs .erp-tab[data-active] .erp-card
+ * .erp-tile .erp-money-bar .erp-segmented. Empty means the default AskDiana look.
+ */

@@ -18,9 +18,13 @@ class DirectTransport:
         self._pack = pack
 
     def get(self, install_id: str, path: str, params: Mapping[str, Any]) -> requests.Response:
-        response = self._send(self._session(install_id), path, params)
+        return self.request(install_id, C.METHOD_GET, path, params)
+
+    def request(self, install_id: str, method: str, path: str, params: Mapping[str, Any],
+                body: Any = None) -> requests.Response:
+        response = self._send(self._session(install_id), method, path, params, body)
         if response.status_code == C.HTTP_UNAUTHORIZED:
-            response = self._send(self._session(install_id, force_refresh=True), path, params)
+            response = self._send(self._session(install_id, force_refresh=True), method, path, params, body)
         self._raise_for_status(response)
         return response
 
@@ -31,9 +35,12 @@ class DirectTransport:
                            f"{self._pack.label} is not connected. Connect your account from the Marketplace card.")
         return session
 
-    def _send(self, session: Session, path: str, params: Mapping[str, Any]) -> requests.Response:
+    def _send(self, session: Session, method: str, path: str, params: Mapping[str, Any],
+              body: Any = None) -> requests.Response:
         try:
-            return session.get(path, params)
+            if method == C.METHOD_GET:
+                return session.get(path, params)
+            return session.send(method, path, params, body)
         except requests.RequestException as exc:
             raise ErpError(ErpError.VENDOR, f"{self._pack.label} could not be reached: {exc}") from exc
 

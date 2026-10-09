@@ -1,0 +1,6 @@
+examples:
+  # Fill the nulls with: python -m tests.record_examples
+  - id: total_amount
+    question: What is the total amount?
+    plan: { endpoints: [records], intent: overview }
+    expect_metrics: { total_amount: null, record_count: null }

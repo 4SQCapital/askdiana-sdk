@@ -1,0 +1,126 @@
+# __NAME__ connector pack. Everything the dashboard, chat and logins need is described here.
+# Start by changing the parts marked TODO, then run:  python -m unittest discover -s tests -t .
+
+id: __PACK__
+provider: __NAME__
+label: __NAME__
+currency: { code: USD, symbol: "$", decimals: 0 }
+
+auth:
+  # TODO: the vendor's login. Choose one or more of: oauth2, token, basic, session.
+  token:
+    label: API key
+    inputs:
+      - {
+          name: base_url,
+          label: Server address,
+          kind: url,
+          help: "e.g. https://erp.yourcompany.com",
+        }
+      - { name: api_key, label: API key, kind: secret }
+    api_base: "{base_url}"
+    headers:
+      Authorization: "Bearer {api_key}"
+    test_path: /api/me # TODO: any cheap GET that needs the key
+    account_label: "__NAME__ @ {base_url}"
+
+paging:
+  # TODO: match the vendor's list API.
+  page_param: page
+  size_param: per_page
+  page_size: 200
+  max_pages: 10
+  stop_on_short_page: true # or more_path: <path of the "more records" flag>
+
+entities:
+  # TODO: one entry per data set. Field names on the left are what the dashboard and chat use;
+  # paths on the right are where the value sits in the vendor's JSON record.
+  records:
+    label: Records
+    path: /api/records
+    records_path: data
+    fields:
+      RecordId: { path: id, type: id }
+      Name: name
+      Status: status
+      Amount: { path: amount, type: money, default: 0 }
+      Date: { path: date, type: date }
+
+sets:
+  open_statuses: [Open]
+
+metrics:
+  total_amount:
+    {
+      label: Total Amount,
+      entity: records,
+      agg: sum,
+      field: Amount,
+      format: currency_compact,
+    }
+  record_count: { label: Records, entity: records, agg: count }
+  open_amount:
+    {
+      label: Open Amount,
+      entity: records,
+      agg: sum,
+      field: Amount,
+      where: { Status: { in: $open_statuses } },
+      format: currency_compact,
+    }
+
+charts:
+  amount_by_status:
+    title: Amount by Status
+    entity: records
+    type: donut
+    group_by: Status
+    value_field: Amount
+    agg: sum
+    value_format: currency_compact
+  top_records:
+    title: Top 10 by Amount
+    entity: records
+    type: horizontal_bar
+    rank_by: Amount
+    label_field: Name
+    top_n: 10
+    color: "__COLOR__"
+    value_format: currency_compact
+
+dashboard:
+  tabs:
+    - id: overview
+      label: Overview
+      tiles:
+        - { metric: total_amount, sub: "{record_count} records" }
+        - { metric: open_amount, variant: warning }
+      charts: [amount_by_status, top_records]
+
+assistant:
+  role: an analyst assistant for __NAME__
+  presenter_role: a business data visualisation expert
+  data_name: this __NAME__ data
+  scope_note: |
+    TODO: say exactly which data sets exist and what they mean, and list what is NOT available
+    so the assistant refuses those questions.
+  out_of_scope_example: This __NAME__ data does not contain payroll data.
+  intents: [overview, top_records, record_listing]
+  planner_example: >-
+    {"endpoints": ["records"], "formula": "Total = sum of Amount", "intent": "overview", "filters": {},
+    "explanation": "Summing the amount of all records."}
+  categorical_fields_hint: Status
+  default_groupings: |
+    - records: group_by Status, value_field Amount, agg sum, chart_type donut
+  presenter_examples: |
+    Example:
+    {"headline": "Records total $1.2M", "summary": "Most of the amount is still open.", "key_findings": ["Open records hold 60% of the amount"], "kpis": [{"label": "Total Amount", "value": "$1,200,000"}], "charts": [{"chart_type": "donut", "title": "Amount by Status", "endpoint": "records", "group_by": "Status", "value_field": "Amount", "agg": "sum"}], "tables": [{"title": "Largest Records", "endpoint": "records", "columns": ["Name", "Status", "Amount"], "sort_by": "Amount", "sort_desc": true}], "alert": null}
+  fallback_endpoints: [records]
+  fallback_charts: [amount_by_status]
+  fallback_headline: __NAME__ Overview
+  fallback_summary: Here is a summary of your __NAME__ data.
+  out_of_scope_headline: Not available in __NAME__ data
+  out_of_scope_summary: This __NAME__ data covers records only.
+  summary_metrics: [total_amount, record_count, open_amount]
+  summary_breakdowns:
+    - { entity: records, group_by: Status }

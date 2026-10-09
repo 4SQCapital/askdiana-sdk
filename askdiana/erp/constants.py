@@ -51,11 +51,18 @@ AUTH_OAUTH2, AUTH_TOKEN, AUTH_BASIC, AUTH_SESSION = "oauth2", "token", "basic", 
 AUTH_METHODS = (AUTH_OAUTH2, AUTH_TOKEN, AUTH_BASIC, AUTH_SESSION)
 CREDENTIAL_METHODS = frozenset({AUTH_TOKEN, AUTH_BASIC, AUTH_SESSION})
 
+# Where a login method connects to, for grouping on the connect page and in the panel's Connection dialog
+DEPLOY_SAAS, DEPLOY_ON_PREM = "saas", "on_prem"
+DEPLOYMENTS = (DEPLOY_SAAS, DEPLOY_ON_PREM)
+
 INPUT_TEXT, INPUT_URL, INPUT_SECRET = "text", "url", "secret"
 INPUT_KINDS = frozenset({INPUT_TEXT, INPUT_URL, INPUT_SECRET})
 
 SESSION_FROM_COOKIE, SESSION_FROM_BODY = "cookie", "body"
 SESSION_SOURCES = frozenset({SESSION_FROM_COOKIE, SESSION_FROM_BODY})
+LOGIN_JSON, LOGIN_FORM = "json", "form"
+LOGIN_ENCODINGS = frozenset({LOGIN_JSON, LOGIN_FORM})
+LOGIN_URL_SCHEMES = ("https://", "http://")
 SESSION_PLACEHOLDER = "session"
 DEFAULT_SESSION_TTL_SECONDS = 1200
 
@@ -68,13 +75,17 @@ TOKEN_ACCOUNT_LABEL = "account_email"
 TOKEN_AUTH_SERVER = "accounts_url"
 TOKEN_AUTH_METHOD = "auth_method"
 TOKEN_CREDENTIALS = "credentials"
+TOKEN_TENANT_ID = "tenant_id"
+TOKEN_TENANT_NAME = "tenant_name"
 TOKEN_REFRESH_LEEWAY_SECONDS = 60
 GRANT_AUTHORIZATION_CODE = "authorization_code"
 GRANT_REFRESH_TOKEN = "refresh_token"
 
 # --- Connect page (token / basic / session) -----------------------------------------
 CONNECT_PAGE_PATH = "/connect"
+CONNECT_OAUTH_PATH = "/connect/oauth"     # nonce-checked redirect to the vendor's sign-in page
 CONNECT_API_PATH = "/api/connect"
+CONNECTION_STATUS_PATH = "/api/connection"
 CONNECT_NAMESPACE = "erp_connect"
 CONNECT_NONCE_KEY = "nonce"
 CONNECT_NONCE_BYTES = 24
@@ -99,7 +110,10 @@ PRESENTER_AGGREGATIONS = (AGG_SUM, AGG_COUNT, AGG_AVG)
 
 FIELD_ID, FIELD_STRING, FIELD_NUMBER = "id", "string", "number"
 FIELD_MONEY, FIELD_PERCENT, FIELD_DATE = "money", "percent", "date"
-FIELD_TYPES = frozenset({FIELD_ID, FIELD_STRING, FIELD_NUMBER, FIELD_MONEY, FIELD_PERCENT, FIELD_DATE})
+FIELD_MONTH = "month"  # a date cut to its month, "YYYY-MM", for charts by month
+FIELD_TYPES = frozenset({FIELD_ID, FIELD_STRING, FIELD_NUMBER, FIELD_MONEY, FIELD_PERCENT, FIELD_DATE, FIELD_MONTH})
+SORT_VALUE, SORT_LABEL = "value", "label"
+CHART_SORTS = (SORT_VALUE, SORT_LABEL)
 
 CHART_BAR, CHART_HBAR, CHART_LINE = "bar", "horizontal_bar", "line"
 CHART_AREA, CHART_DONUT, CHART_PIE = "area", "donut", "pie"
@@ -115,6 +129,14 @@ VARIANT_DEFAULT = "default"
 VARIANTS = frozenset({VARIANT_DEFAULT, "success", "warning", "danger"})
 
 SET_REFERENCE_PREFIX = "$"
+TODAY_TOKEN = "@today"                    # in a derive rule: today's date (YYYY-MM-DD), when the row is mapped
+# Also "@today+7" / "@today-30" (days), "@month_start" and "@year_start"
+DATE_TOKEN_RE = re.compile(r"^@(?:(?P<today>today)(?P<days>[+-]\d+)?|(?P<start>month|year)_start)$")
+# Placeholders an entity param can use when the API pages inside a query (e.g. QuickBooks' STARTPOSITION)
+PAGING_PLACEHOLDERS = frozenset({"page", "size", "offset", "position"})
+# How an entity reads its records: GET with query params, or POST with a JSON query body (Sage Intacct)
+METHOD_GET, METHOD_POST = "GET", "POST"
+ENTITY_METHODS = (METHOD_GET, METHOD_POST)
 
 # --- Chat answers ---------------------------------------------------------------
 DEFAULT_TOP_N = 5
@@ -126,5 +148,8 @@ MAX_PLANNER_ENDPOINTS = 4
 INTENT_OUT_OF_SCOPE = "out_of_scope"
 INTENT_GENERAL = "general_overview"
 EXPORT_CSV_PATH = "/api/extensions/export-csv"
+DIGIT_RE = re.compile(r"\d")
 PLACEHOLDER_RE = re.compile(r"[A-Z]{2,}(?:_[A-Z]{2,})+|\$[A-Z]\b|\b[A-Z]\b")
 
+
+ENV_PRIVATE_NETWORKS = "ERP_PRIVATE_NETWORKS"

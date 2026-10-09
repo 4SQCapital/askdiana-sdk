@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import date
 
 import requests
 
@@ -24,6 +25,12 @@ class Answer:
     data: dict[str, list[dict]]
     presentation: dict
     truncated: tuple[str, ...] = field(default_factory=tuple)
+
+
+def _today_line() -> str:
+    """Sent with every question, so "this month" or "last 30 days" can be turned into filters."""
+    today = date.today()
+    return f"Today: {today.isoformat()} (this month: {today:%Y-%m})"
 
 
 def notice(headline: str, summary: str, *, alert: str | None = None) -> dict:
@@ -53,7 +60,7 @@ class AnswerPipeline:
     def plan(self, question: str) -> dict:
         a = self._pack.assistant
         try:
-            result = self._llm.complete_json(self._planner_prompt, f"Question: {question}")
+            result = self._llm.complete_json(self._planner_prompt, f"{_today_line()}\nQuestion: {question}")
             result["endpoints"] = [e for e in result.get("endpoints", []) if e in self._pack.entities][:C.MAX_PLANNER_ENDPOINTS]
             if not result["endpoints"] and result.get("intent") != C.INTENT_OUT_OF_SCOPE:
                 result["endpoints"] = list(a.fallback_endpoints)
@@ -66,7 +73,8 @@ class AnswerPipeline:
     def present(self, question: str, summary: str) -> dict:
         a = self._pack.assistant
         try:
-            result = self._llm.complete_json(self._presenter_prompt, f"Question: {question}\n\nData summary:\n{summary}")
+            result = self._llm.complete_json(
+                self._presenter_prompt, f"{_today_line()}\nQuestion: {question}\n\nData summary:\n{summary}")
             result.setdefault("key_findings", [])
             result.setdefault("tables", [])
             return result

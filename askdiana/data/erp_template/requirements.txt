@@ -1,0 +1,4 @@
+askdiana
+flask
+python-dotenv
+pyyaml>=6.0

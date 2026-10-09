@@ -16,7 +16,7 @@ from .errors import ErpError
 from .mapping import get_path, placeholders, render
 from .pack import CredentialSpec
 from .session import Session
-from .settings import env_flag
+from .settings import env_flag, env_str
 
 
 def check_url(url: str) -> str:
@@ -31,10 +31,22 @@ def check_url(url: str) -> str:
         addresses = {info[4][0] for info in socket.getaddrinfo(parsed.hostname, parsed.port or C.DEFAULT_HTTPS_PORT)}
     except socket.gaierror:
         raise ErpError(ErpError.INVALID, f"Can't find the server '{parsed.hostname}'. Check the address.") from None
-    if any(not ipaddress.ip_address(address.split("%")[0]).is_global for address in addresses):
-        raise ErpError(ErpError.INVALID, f"'{parsed.hostname}' is on a private network, so it can't be reached "
-                                         "from the cloud. On-prem systems connect through the AskDiana proxy.")
+    allowed = private_networks()
+    for address in addresses:
+        ip = ipaddress.ip_address(address.split("%")[0])
+        if not ip.is_global and not any(ip in network for network in allowed):
+            raise ErpError(ErpError.INVALID, f"'{parsed.hostname}' is on a private network, so it can't be reached "
+                                            f"from the cloud. Set {C.ENV_PRIVATE_NETWORKS} when AskDiana itself "
+                                            "runs on-prem.")
     return url
+
+
+def private_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    raw = env_str(C.ENV_PRIVATE_NETWORKS)
+    try:
+        return tuple(ipaddress.ip_network(part.strip(), strict=False) for part in raw.split(",") if part.strip())
+    except ValueError as exc:
+        raise ErpError(ErpError.CONFIG, f"{C.ENV_PRIVATE_NETWORKS} is not a list of networks: {exc}") from None
 
 
 def _render_all(templates: Mapping[str, str], values: Mapping[str, Any]) -> dict[str, str]:
@@ -76,10 +88,10 @@ class CredentialFlow:
             raise ErpError(ErpError.VENDOR, f"{self._label} could not be reached: {exc}") from exc
         if response.status_code in C.AUTH_REJECTED_STATUSES:
             raise ErpError(ErpError.UNAUTHORIZED, f"{self._label} rejected these details. Check them and try again.",
-                           vendor_status=response.status_code)
+                        vendor_status=response.status_code)
         if not response.ok:
             raise ErpError(ErpError.VENDOR, f"{self._label} returned HTTP {response.status_code} to the test request.",
-                           vendor_status=response.status_code)
+                        vendor_status=response.status_code)
 
     def account_label(self, values: Mapping[str, str]) -> str | None:
         return render(self.spec.account_label, values) if self.spec.account_label else None
@@ -112,13 +124,18 @@ class CredentialFlow:
                 return session
         login = self.spec.login
         body = {key: render(value, values) if isinstance(value, str) else value for key, value in login.body.items()}
+        url = render(login.url, values) if login.url else render(self.spec.api_base, values) + login.path
+        send = {"data": body} if login.encoding == C.LOGIN_FORM else {"json": body}
+        if login.basic_auth:
+            user, password = login.basic_auth
+            send["auth"] = (values[user], values[password])
         try:
-            response = http.request("POST", render(self.spec.api_base, values) + login.path, json=body, retry=False)
+            response = http.request("POST", url, retry=False, **send)
         except requests.RequestException as exc:
             raise ErpError(ErpError.VENDOR, f"{self._label} could not be reached: {exc}") from exc
         if not response.ok:
             raise ErpError(ErpError.UNAUTHORIZED, f"{self._label} rejected the login. Reconnect with the correct details.",
-                           vendor_status=response.status_code)
+                        vendor_status=response.status_code)
         if login.session_from == C.SESSION_FROM_COOKIE:
             session = response.cookies.get(login.session_key)
         else:

@@ -47,6 +47,13 @@ filtered to that subset; returning the full unfiltered dataset when a subset
 was asked for is always wrong.
 {"filters": [{"field": "<real field name>", "op": <<OPS>>, "value": <number or string>}]}
 
+Periods ("this month", "last 30 days", "this year", "overdue by more than 60 days") are filters too.
+Compare a date field (YYYY-MM-DD) with "gte"/"lt" and these tokens, which Python turns into real dates:
+"@month_start", "@year_start", "@today", "@today-30", "@today+7". A month field holds "YYYY-MM": filter it
+with "eq" and the month from the "Today" line. Example for this month's sales:
+{"field": "Date", "op": "gte", "value": "@month_start"}
+Title every chart and table after the subset, e.g. "Sales Invoices This Month".
+
 Use "eq"/"neq" only when you are certain of the exact stored value. For
 categorical fields (<<CATEGORICAL_FIELDS>>) prefer "contains"
 (case-insensitive substring match) whenever the question uses a loose

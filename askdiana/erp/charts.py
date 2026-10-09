@@ -15,7 +15,7 @@ def pack_series(spec: ChartSpec, rows: list[dict]) -> Series:
     if spec.rank_by:
         return rank_rows(rows, label_field=spec.label_field or spec.rank_by, value_field=spec.rank_by, top_n=spec.top_n)
     grouped = group_values(rows, group_by=spec.group_by, value_field=spec.value_field, agg=spec.agg)
-    return order_groups(grouped or {}, order=spec.order, top_n=spec.top_n)
+    return order_groups(grouped or {}, order=spec.order, top_n=spec.top_n, sort=spec.sort)
 
 
 def presenter_series(spec: Mapping[str, Any], data: Mapping[str, list[dict]]) -> Series | None:

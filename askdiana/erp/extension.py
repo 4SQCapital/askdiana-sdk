@@ -7,8 +7,9 @@ from flask import Blueprint, jsonify, request, send_from_directory
 from . import constants as C
 from .chat import ErpChatService
 from .connect import connect_blueprint
+from .connection import connect_options, deployment_groups
 from .connector import ErpConnector
-from .dashboard import build_tab, entities_for_tab, tab_index
+from .dashboard import build_tab, entities_for_tab, entity_index, tab_index
 from .errors import ErpError
 from .llm import LLMClient, llm_from_env
 from .pack import Pack, load_pack
@@ -48,6 +49,7 @@ class ErpExtension:
         if self.pack.auth.credentials:
             app.register_blueprint(connect_blueprint(self.pack, self.connector))
         app.register_blueprint(data_blueprint(self.pack, self.source))
+        app.register_blueprint(connection_blueprint(self.pack, self.connector))
         if self._static_dir:
             _register_ui(app.flask, self._static_dir)
         _register_webhooks(app, self.source)
@@ -65,7 +67,8 @@ def data_blueprint(pack: Pack, source: DataSource) -> Blueprint:
     @bp.route("/api/meta", methods=["GET", "OPTIONS"])
     def meta():
         mode = source.mode(request.args.get(INSTALL_ID_PARAM))
-        return jsonify({"live": mode == C.MODE_LIVE, "mode": mode, "label": pack.label})
+        return jsonify({"live": mode == C.MODE_LIVE, "mode": mode, "label": pack.label,
+                        "currency": pack.currency_code, "entities": entity_index(pack)})
 
     @bp.route("/api/dashboard", methods=["GET", "OPTIONS"])
     def dashboard():
@@ -78,6 +81,32 @@ def data_blueprint(pack: Pack, source: DataSource) -> Blueprint:
     def rows(entity: str):
         result = source.fetch(request.args.get(INSTALL_ID_PARAM), entity)
         return jsonify({"items": result.rows, "count": len(result.rows), "truncated": result.truncated})
+
+    return bp
+
+
+def connection_blueprint(pack: Pack, connector: ErpConnector) -> Blueprint:
+    """GET /api/connection: status and the ways to connect, for the panel's Connection dialog.
+
+    Read-only. Connecting and disconnecting go through AskDiana (the Marketplace connect flow), never through
+    this endpoint, because it is only identified by install_id.
+    """
+    bp = Blueprint("erp_connection", __name__)
+    options = connect_options(pack)
+    labels = {option["method"]: option["label"] for option in options}
+
+    @bp.route(C.CONNECTION_STATUS_PATH, methods=["GET", "OPTIONS"])
+    def connection():
+        install_id = request.args.get(INSTALL_ID_PARAM)
+        try:
+            status = connector.get_auth_status(install_id) if install_id else {"connected": False}
+        except ErpError:
+            status = {"connected": False}
+        method = status.get("auth_method") if status.get("connected") else None
+        return jsonify({"connected": bool(status.get("connected")), "method": method,
+                        "method_label": labels.get(method) if method else None,
+                        "account": status.get("account_email") if method else None,
+                        "label": pack.label, "options": options, "groups": deployment_groups(options)})
 
     return bp
 

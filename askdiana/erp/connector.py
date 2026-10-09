@@ -108,6 +108,13 @@ class ErpConnector(ConnectorService):
     def connect_with_credentials(self, install_id: str, nonce: str, method: str,
                                  form: Mapping[str, Any]) -> str:
         redirect_uri = self.check_nonce(install_id, nonce)
+        record = self._checked_credentials(install_id, method, form)
+        self._save(install_id, record)
+        self._delete_nonce(install_id)
+        separator = "&" if "?" in redirect_uri else "?"
+        return f"{redirect_uri}{separator}{urlencode({'code': C.CONNECTED_CODE, 'state': install_id})}"
+
+    def _checked_credentials(self, install_id: str, method: str, form: Mapping[str, Any]) -> dict[str, Any]:
         flow = self.credential_flows.get(method)
         if flow is None:
             raise ErpError(ErpError.INVALID, f"Unknown sign-in method '{method}'")
@@ -118,14 +125,11 @@ class ErpConnector(ConnectorService):
         except ErpError:
             flow.forget(install_id)
             raise
-        self._save(install_id, {
+        return {
             C.TOKEN_AUTH_METHOD: method,
             C.TOKEN_CREDENTIALS: values,
             C.TOKEN_ACCOUNT_LABEL: flow.account_label(values),
-        })
-        self._delete_nonce(install_id)
-        separator = "&" if "?" in redirect_uri else "?"
-        return f"{redirect_uri}{separator}{urlencode({'code': C.CONNECTED_CODE, 'state': install_id})}"
+        }
 
     # ------------------------------------------------------------ internals
 

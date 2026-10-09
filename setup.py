@@ -4,7 +4,12 @@ setup(
     name="askdiana",
     version="0.2.0",
     packages=find_packages(exclude=["tests", "tests.*"]),
-    package_data={"askdiana": ["data/*.tgz"]},
+    package_data={"askdiana": [
+        "data/*.tgz",
+        "data/erp_template/*",
+        "data/erp_template/*/*",
+        "data/erp_template/*/*/*",
+    ]},
     include_package_data=True,
     install_requires=["requests>=2.20.0", "python-dotenv>=0.19.0", "websocket-client>=1.6.0"],
     extras_require={

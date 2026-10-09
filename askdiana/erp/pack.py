@@ -17,10 +17,12 @@ from .mapping import placeholders
 @dataclass(frozen=True)
 class FieldSpec:
     name: str
-    path: str
+    path: str = ""
     type: str = C.FIELD_STRING
     default: Any = None
     fallback_join: tuple[str, ...] = ()
+    # Computed from the other fields of the row: first rule whose `where` matches wins
+    derive: tuple[tuple[Any, tuple[dict, ...]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -30,11 +32,27 @@ class EntitySpec:
     path: str
     records_path: str
     fields: dict[str, FieldSpec]
+    params: dict[str, str] = field(default_factory=dict)
+    # POST entities send `body` as JSON; strings in it may use the paging placeholders and date tokens
+    method: str = C.METHOD_GET
+    body: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def source_paths(self) -> list[str]:
+        """Every field path in full ("customer.name"), for APIs that take the field list in a query body."""
+        paths: list[str] = []
+        for spec in self.fields.values():
+            for candidate in (spec.path, *spec.fallback_join):
+                if candidate and candidate not in paths:
+                    paths.append(candidate)
+        return paths
 
     @property
     def source_fields(self) -> str:
         roots: list[str] = []
         for spec in self.fields.values():
+            if not spec.path:
+                continue
             for candidate in (spec.path.split(".")[0], *spec.fallback_join):
                 if candidate != "id" and candidate not in roots:
                     roots.append(candidate)
@@ -47,15 +65,33 @@ class EntitySpec:
 
 @dataclass(frozen=True)
 class PagingSpec:
-    page_param: str
-    size_param: str
     page_size: int
     max_pages: int
-    more_path: str
+    # Optional: an API that pages inside a query uses {page} {size} {offset} {position} in entity params instead
+    page_param: str | None = None
+    size_param: str | None = None
+    more_path: str | None = None
+    stop_on_short_page: bool = False
     fields_param: str | None = None
     token_param: str | None = None
     next_token_path: str | None = None
     empty_status: int | None = None
+    # Server-driven paging: the response carries the next page's full URL (OData "@odata.nextLink")
+    next_link_path: str | None = None
+    # POST entities: the body key that takes the mapped field paths as a list (Sage Intacct: "fields")
+    fields_body: str | None = None
+
+
+@dataclass(frozen=True)
+class TenantSpec:
+    path: str
+    id_path: str
+    # Where the organisation goes on each request: a header, or the API path ("/companies({id})")
+    header: str | None = None
+    path_suffix: str | None = None
+    label_path: str | None = None
+    auth_event_claim: str | None = None
+    auth_event_param: str | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +107,8 @@ class OAuthSpec:
     api_base_default: str
     scopes: tuple[str, ...]
     label: str = "Sign in"
+    description: str | None = None
+    deployment: str | None = None
     scope_separator: str = " "
     auth_server_env: str | None = None
     auth_server_param: str | None = None
@@ -78,6 +116,21 @@ class OAuthSpec:
     revoke_param: str = "token"
     authorize_params: dict[str, str] = field(default_factory=dict)
     account_info: dict[str, Any] | None = None
+    headers: dict[str, str] = field(default_factory=dict)
+    tenant: TenantSpec | None = None
+    authorize_server_default: str | None = None
+    authorize_server_env: str | None = None
+    revoke_client_auth: bool = False
+    # Values kept in the token record, e.g. QuickBooks' company id: from the sign-in redirect's query
+    # string (when the platform forwards it) or from the id_token's claims
+    callback_params: dict[str, str] = field(default_factory=dict)
+    id_token_claims: dict[str, str] = field(default_factory=dict)
+    # Appended to the API base, filled from the token record: "/v3/company/{realm_id}"
+    api_base_suffix: str | None = None
+    # Env var that overrides api_base_default, e.g. a vendor sandbox host
+    api_base_env: str | None = None
+    # Values kept in the token record from settings: { environment: { env: BC_ENVIRONMENT, default: production } }
+    record_values: dict[str, dict[str, str]] = field(default_factory=dict)
 
     @property
     def scope(self) -> str:
@@ -96,10 +149,13 @@ class InputSpec:
 
 @dataclass(frozen=True)
 class LoginSpec:
-    path: str
     body: dict[str, Any]
     session_from: str
     session_key: str
+    path: str | None = None
+    url: str | None = None
+    encoding: str = C.LOGIN_JSON
+    basic_auth: tuple[str, str] | None = None
     ttl_seconds: int = C.DEFAULT_SESSION_TTL_SECONDS
 
 
@@ -117,6 +173,8 @@ class CredentialSpec:
     password: str | None = None
     login: LoginSpec | None = None
     account_label: str | None = None
+    description: str | None = None
+    deployment: str | None = None
 
     @property
     def input_names(self) -> set[str]:
@@ -147,9 +205,11 @@ class MetricSpec:
 class ChartSpec:
     name: str
     title: str
-    entity: str
     type: str
     value_format: str
+    entity: str | None = None
+    # A chart of metrics instead of grouped rows: one point per metric (e.g. ageing buckets)
+    metrics: tuple[str, ...] = ()
     group_by: str | None = None
     value_field: str | None = None
     agg: str = C.AGG_SUM
@@ -160,6 +220,8 @@ class ChartSpec:
     where: tuple[dict, ...] = ()
     color: str | None = None
     colors: dict[str, str] = field(default_factory=dict)
+    # "label" sorts the groups by name (months in order); with top_n it keeps the last ones (the latest months)
+    sort: str = C.SORT_VALUE
 
 
 @dataclass(frozen=True)
@@ -168,6 +230,22 @@ class TileSpec:
     label: str
     sub: str | None = None
     variant: str = C.VARIANT_DEFAULT
+    # Tiles with the same group are shown together under that heading
+    group: str | None = None
+
+
+@dataclass(frozen=True)
+class SegmentSpec:
+    metric: str
+    label: str
+    color: str | None = None
+
+
+@dataclass(frozen=True)
+class BarSpec:
+    """One segmented "money bar": the parts of a whole side by side (e.g. Overdue / Not due yet / Paid)."""
+    title: str
+    segments: tuple[SegmentSpec, ...]
 
 
 @dataclass(frozen=True)
@@ -176,6 +254,9 @@ class TabSpec:
     label: str
     tiles: tuple[TileSpec, ...]
     charts: tuple[str, ...]
+    bars: tuple[BarSpec, ...] = ()
+    # Short sentences above the tiles, filled with metric values: "{overdue} is overdue"
+    headlines: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -254,7 +335,7 @@ def _parse_pack(raw: Mapping[str, Any]) -> Pack:
         currency_decimals=int(currency.get("decimals", 0)),
         auth=_parse_auth(raw.get("auth") or {}),
         paging=PagingSpec(**raw["paging"]),
-        entities={name: _parse_entity(name, spec) for name, spec in raw["entities"].items()},
+        entities={name: _parse_entity(name, spec, sets) for name, spec in raw["entities"].items()},
         metrics={name: _parse_metric(name, spec, sets) for name, spec in (raw.get("metrics") or {}).items()},
         charts={name: _parse_chart(name, spec, sets) for name, spec in (raw.get("charts") or {}).items()},
         tabs=tuple(_parse_tab(tab, raw.get("metrics") or {}) for tab in dashboard.get("tabs") or ()),
@@ -266,7 +347,11 @@ def _parse_auth(raw: Mapping[str, Any]) -> AuthSpec:
     unknown = [key for key in raw if key not in C.AUTH_METHODS]
     if unknown or not raw:
         raise ErpError(ErpError.CONFIG,
-                       f"auth: needs one or more of {', '.join(C.AUTH_METHODS)} (got {', '.join(raw) or 'nothing'})")
+                    f"auth: needs one or more of {', '.join(C.AUTH_METHODS)} (got {', '.join(raw) or 'nothing'})")
+    bad = [m for m, spec in raw.items()
+           if isinstance(spec, Mapping) and spec.get("deployment") not in (None, *C.DEPLOYMENTS)]
+    if bad:
+        raise ErpError(ErpError.CONFIG, f"auth.{bad[0]}.deployment must be one of {', '.join(C.DEPLOYMENTS)}")
     return AuthSpec(
         methods=tuple(raw),
         oauth2=_parse_oauth(raw[C.AUTH_OAUTH2]) if C.AUTH_OAUTH2 in raw else None,
@@ -279,6 +364,14 @@ def _parse_oauth(raw: Mapping[str, Any]) -> OAuthSpec:
     values["scopes"] = tuple(values.get("scopes") or ())
     values["auth_servers"] = tuple(s.rstrip("/") for s in values.get("auth_servers") or ())
     values["auth_server_default"] = values["auth_server_default"].rstrip("/")
+    if values.get("authorize_server_default"):
+        values["authorize_server_default"] = values["authorize_server_default"].rstrip("/")
+    values["headers"] = dict(values.get("headers") or {})
+    values["callback_params"] = dict(values.get("callback_params") or {})
+    values["id_token_claims"] = dict(values.get("id_token_claims") or {})
+    values["record_values"] = {k: dict(v) for k, v in (values.get("record_values") or {}).items()}
+    if values.get("tenant"):
+        values["tenant"] = TenantSpec(**values["tenant"])
     return OAuthSpec(**values)
 
 
@@ -290,16 +383,22 @@ def _parse_credentials(method: str, raw: Mapping[str, Any]) -> CredentialSpec:
     if values.get("login"):
         login = dict(values["login"])
         login["body"] = dict(login.get("body") or {})
+        if login.get("basic_auth"):
+            login["basic_auth"] = tuple(login["basic_auth"])
         values["login"] = LoginSpec(**login)
     values.setdefault("label", method.title())
     return CredentialSpec(method=method, **values)
 
 
-def _parse_entity(name: str, raw: Mapping[str, Any]) -> EntitySpec:
+def _parse_entity(name: str, raw: Mapping[str, Any], sets: Mapping[str, tuple] | None = None) -> EntitySpec:
     fields = {}
     for fname, spec in raw["fields"].items():
         spec = {"path": spec} if isinstance(spec, str) else dict(spec)
         spec["fallback_join"] = tuple(spec.get("fallback_join") or ())
+        spec["derive"] = tuple(
+            (rule.get("value"), _parse_where(rule.get("where"), sets or {}, f"entity {name}.{fname}"))
+            for rule in spec.get("derive") or ()
+        )
         fields[fname] = FieldSpec(name=fname, **spec)
     return EntitySpec(
         name=name,
@@ -307,6 +406,9 @@ def _parse_entity(name: str, raw: Mapping[str, Any]) -> EntitySpec:
         path=raw["path"],
         records_path=raw["records_path"],
         fields=fields,
+        params={key: str(value) for key, value in (raw.get("params") or {}).items()},
+        method=str(raw.get("method") or C.METHOD_GET).upper(),
+        body=dict(raw.get("body") or {}),
     )
 
 
@@ -348,6 +450,7 @@ def _parse_chart(name: str, raw: Mapping[str, Any], sets: Mapping[str, tuple]) -
     values["order"] = tuple(_resolve(values.get("order") or (), sets, f"chart {name}"))
     values["where"] = _parse_where(values.get("where"), sets, f"chart {name}")
     values["colors"] = dict(values.get("colors") or {})
+    values["metrics"] = tuple(values.get("metrics") or ())
     values.setdefault("value_format", C.FMT_NUMBER)
     return ChartSpec(name=name, **values)
 
@@ -362,8 +465,18 @@ def _parse_tab(raw: Mapping[str, Any], metrics_raw: Mapping[str, Any]) -> TabSpe
             label=tile.get("label", default_label),
             sub=tile.get("sub"),
             variant=tile.get("variant", C.VARIANT_DEFAULT),
+            group=tile.get("group"),
         ))
-    return TabSpec(id=raw["id"], label=raw["label"], tiles=tuple(tiles), charts=tuple(raw.get("charts") or ()))
+    bars = tuple(
+        BarSpec(title=bar["title"], segments=tuple(
+            SegmentSpec(metric=s["metric"], label=s.get("label", (metrics_raw.get(s["metric"]) or {}).get("label", s["metric"])),
+                        color=s.get("color"))
+            for s in bar.get("segments") or ()
+        ))
+        for bar in raw.get("bars") or ()
+    )
+    return TabSpec(id=raw["id"], label=raw["label"], tiles=tuple(tiles), charts=tuple(raw.get("charts") or ()),
+                   bars=bars, headlines=tuple(raw.get("headlines") or ()))
 
 
 def _parse_assistant(raw: Mapping[str, Any]) -> AssistantSpec:
@@ -374,6 +487,17 @@ def _parse_assistant(raw: Mapping[str, Any]) -> AssistantSpec:
 
 
 # ---------------------------------------------------------------------------- validation
+
+def _strings(value: Any) -> list[str]:
+    """Every string inside a nested body (dicts and lists)."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Mapping):
+        return [s for item in value.values() for s in _strings(item)]
+    if isinstance(value, (list, tuple)):
+        return [s for item in value for s in _strings(item)]
+    return []
+
 
 def _validate(pack: Pack) -> list[str]:
     problems: list[str] = []
@@ -394,12 +518,31 @@ def _validate(pack: Pack) -> list[str]:
         for f in where:
             need(f["op"] in C.OPERATORS, f"{context}: unknown operator '{f['op']}'")
 
+    need(bool(pack.paging.more_path or pack.paging.next_link_path) or pack.paging.stop_on_short_page,
+        "paging: set more_path, next_link_path, or stop_on_short_page: true when the API has no 'more records' flag")
     for spec in pack.auth.credentials.values():
         problems.extend(_credential_problems(spec))
+    tenant = pack.auth.oauth2.tenant if pack.auth.oauth2 else None
+    if tenant:
+        need(bool(tenant.header) != bool(tenant.path_suffix), "auth.oauth2.tenant: set exactly one of header / path_suffix")
 
     for entity in pack.entities.values():
         for spec in entity.fields.values():
-            need(spec.type in C.FIELD_TYPES, f"entity {entity.name}.{spec.name}: unknown type '{spec.type}'")
+            ctx = f"entity {entity.name}.{spec.name}"
+            need(spec.type in C.FIELD_TYPES, f"{ctx}: unknown type '{spec.type}'")
+            need(bool(spec.path) != bool(spec.derive), f"{ctx}: set exactly one of path / derive")
+            for _, where in spec.derive:
+                check_where(entity.name, where, ctx)
+                need(all(f["field"] != spec.name for f in where), f"{ctx}: a derive rule can't use the field itself")
+        ctx = f"entity {entity.name}"
+        need(entity.method in C.ENTITY_METHODS, f"{ctx}: method must be one of {', '.join(C.ENTITY_METHODS)}")
+        is_post = entity.method == C.METHOD_POST
+        need(is_post or not entity.body, f"{ctx}: a body needs method: POST")
+        need(not is_post or bool(entity.body), f"{ctx}: method POST needs a body")
+        paged_in_query = any(set(placeholders(v)) & C.PAGING_PLACEHOLDERS
+                             for v in (*entity.params.values(), *_strings(entity.body)))
+        need(bool(pack.paging.page_param or pack.paging.next_link_path) or paged_in_query,
+             f"{ctx}: paging has no page_param, so a param or the body must use {{page}}, {{offset}} or {{position}}")
 
     for metric in pack.metrics.values():
         ctx = f"metric {metric.name}"
@@ -417,8 +560,14 @@ def _validate(pack: Pack) -> list[str]:
         ctx = f"chart {chart.name}"
         need(chart.type in C.CHART_TYPES, f"{ctx}: unknown type '{chart.type}'")
         need(chart.value_format in C.FORMATS, f"{ctx}: unknown value_format '{chart.value_format}'")
+        if chart.metrics:
+            need(not (chart.entity or chart.group_by or chart.rank_by), f"{ctx}: a metrics chart has no entity / group_by / rank_by")
+            for ref in chart.metrics:
+                need(ref in pack.metrics, f"{ctx}: unknown metric '{ref}'")
+            continue
         need(bool(chart.group_by) != bool(chart.rank_by), f"{ctx}: set exactly one of group_by / rank_by")
         need(chart.agg in C.AGGREGATIONS, f"{ctx}: unknown agg '{chart.agg}'")
+        need(chart.sort in C.CHART_SORTS, f"{ctx}: sort must be one of {', '.join(C.CHART_SORTS)}")
         check_fields(chart.entity, [chart.group_by, chart.value_field, chart.rank_by, chart.label_field], ctx)
         check_where(chart.entity, chart.where, ctx)
 
@@ -428,14 +577,23 @@ def _validate(pack: Pack) -> list[str]:
             need(tile.variant in C.VARIANTS, f"tab {tab.id}: unknown variant '{tile.variant}'")
             for ref in placeholders(tile.sub):
                 need(ref in pack.metrics, f"tab {tab.id}: sub refers to unknown metric '{ref}'")
+        for headline in tab.headlines:
+            for ref in placeholders(headline):
+                need(ref in pack.metrics, f"tab {tab.id}: headline refers to unknown metric '{ref}'")
         for chart in tab.charts:
             need(chart in pack.charts, f"tab {tab.id}: unknown chart '{chart}'")
+        for bar in tab.bars:
+            need(bool(bar.segments), f"tab {tab.id}: bar '{bar.title}' needs segments")
+            for segment in bar.segments:
+                need(segment.metric in pack.metrics, f"tab {tab.id}: bar '{bar.title}' uses unknown metric '{segment.metric}'")
 
     a = pack.assistant
     for name in a.fallback_endpoints:
         need(name in pack.entities, f"assistant.fallback_endpoints: unknown entity '{name}'")
     for name in a.fallback_charts:
         need(name in pack.charts, f"assistant.fallback_charts: unknown chart '{name}'")
+        need(name not in pack.charts or not pack.charts[name].metrics,
+             f"assistant.fallback_charts: '{name}' is a metrics chart; use a chart of rows")
     for name in a.summary_metrics:
         need(name in pack.metrics, f"assistant.summary_metrics: unknown metric '{name}'")
     for item in a.summary_breakdowns:
@@ -478,9 +636,23 @@ def _credential_problems(spec: CredentialSpec) -> list[str]:
     if spec.method == C.AUTH_SESSION:
         need(has_session, "needs a login: block")
     if has_session:
-        need(spec.login.session_from in C.SESSION_SOURCES, f"login.session_from must be one of {sorted(C.SESSION_SOURCES)}")
-        check_templates(spec.login.body, "login.body", session_ok=False)
+        login = spec.login
+        need(login.session_from in C.SESSION_SOURCES, f"login.session_from must be one of {sorted(C.SESSION_SOURCES)}")
+        check_templates(login.body, "login.body", session_ok=False)
+        need(bool(login.path) != bool(login.url), "login: set exactly one of path (on api_base) or url (anywhere)")
+        if login.url:
+            # Or start with a url input, e.g. "{base_url}/oauth2/token": the connect form checks that address
+            url_inputs = tuple(f"{{{i.name}}}" for i in spec.inputs if i.kind == C.INPUT_URL)
+            need(login.url.startswith(C.LOGIN_URL_SCHEMES + url_inputs),
+                 "login.url must start with https:// or a url input (http:// only for tests)")
+            check_templates({"url": login.url}, "login", session_ok=False)
+        need(login.encoding in C.LOGIN_ENCODINGS, f"login.encoding must be one of {sorted(C.LOGIN_ENCODINGS)}")
+        if login.basic_auth:
+            need(len(login.basic_auth) == 2 and set(login.basic_auth) <= spec.input_names,
+                "login.basic_auth must name two inputs: [username input, password input]")
         uses_session = any(C.SESSION_PLACEHOLDER in placeholders(t)
                            for t in (*spec.headers.values(), *spec.query.values(), *spec.cookies.values()))
         need(uses_session, "headers, query or cookies must use {session}")
     return problems
+
+
