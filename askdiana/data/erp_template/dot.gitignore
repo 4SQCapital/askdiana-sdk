@@ -1,0 +1,8 @@
+.env
+.askdiana.json
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+static/
+askdiana-ui-*.tgz

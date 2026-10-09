@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from . import constants as C
+from .mapping import date_token
 
 _OPS: dict[str, Callable[[Any, Any], bool]] = {
     C.OP_EQ: lambda a, b: a == b,
@@ -24,16 +26,19 @@ def is_number(value: Any) -> bool:
 
 
 def apply_filters(rows: Iterable[Any], filters: Sequence[Mapping[str, Any]] | None) -> list[dict]:
+    """Keep rows matching every filter. Values may be date tokens ('@month_start', '@today-30', ...)."""
     dict_rows = [r for r in rows if isinstance(r, dict)]
     if not filters:
         return dict_rows
+    today = date.today()
+    resolved = [(f, date_token(f.get("value"), today)) for f in filters]
     kept = []
     for row in dict_rows:
-        for f in filters:
+        for f, value in resolved:
             fn = _OPS.get(f.get("op", C.OP_EQ))
             actual = row.get(f.get("field"))
             try:
-                if fn is None or actual is None or not fn(actual, f.get("value")):
+                if fn is None or actual is None or not fn(actual, value):
                     break
             except TypeError:
                 break
@@ -78,7 +83,10 @@ def group_values(rows: Sequence[dict], *, group_by: str, value_field: str | None
 
 
 def order_groups(grouped: Mapping[str, float], *, order: Sequence[str] = (),
-                top_n: int | None = None) -> list[tuple[str, float]]:
+                top_n: int | None = None, sort: str = C.SORT_VALUE) -> list[tuple[str, float]]:
+    if sort == C.SORT_LABEL:
+        by_label = sorted(grouped.items())
+        return by_label[-top_n:] if top_n else by_label
     by_value = sorted(grouped.items(), key=lambda kv: -kv[1])
     if order:
         known = set(order)

@@ -1,0 +1,30 @@
+{
+  "name": "__NAME__",
+  "slug": "__SLUG__",
+  "version": "1.0.0",
+  "type": "visualization",
+  "description": "TODO: describe what __NAME__ data this extension reads. Connect your own account (read-only) for live data, or explore sample data.",
+  "short_description": "__NAME__ data",
+  "permissions": ["chats:read", "chats:write"],
+  "pricing": {
+    "model": "free"
+  },
+  "ui": {
+    "type": "iframe",
+    "url": "http://localhost:5000/ui",
+    "height": "600px",
+    "views": { "app": true, "settings": false, "response": true }
+  },
+  "capabilities": {
+    "chat_respond": "/api/chat",
+    "auth_status": "/api/auth/status",
+    "auth_url": "/api/auth/url",
+    "auth_callback": "/api/auth/callback",
+    "auth_disconnect": "/api/auth/disconnect"
+  },
+  "chat_config": {
+    "display_name": "__NAME__",
+    "color": "__COLOR__",
+    "description": "Ask about your __NAME__ data"
+  }
+}

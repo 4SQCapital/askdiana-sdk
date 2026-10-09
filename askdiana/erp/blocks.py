@@ -19,7 +19,9 @@ def build_blocks(pack: Pack, answer: Answer) -> list[dict]:
 
     headline, summary, kpis = presentation.get("headline"), presentation.get("summary"), presentation.get("kpis") or []
     if tables:
-        headline, summary, kpis = _grounded_text(pack, tables[0])
+        # The table's count and total answer the question; a separate Metric/Value table would repeat them.
+        headline, summary = _grounded_text(pack, tables[0], summary)
+        kpis = []
 
     blocks: list[dict] = []
     if _real(headline):
@@ -76,7 +78,11 @@ def _tables(pack: Pack, presentation: dict, data: dict) -> list[Table]:
         return tables
     for name, rows in data.items():
         scalar = [k for k, v in (rows[0].items() if rows else []) if not isinstance(v, (dict, list))]
-        table = _table(pack, data, {"endpoint": name, "columns": scalar[:C.FALLBACK_TABLE_MAX_COLUMNS],
+        columns = scalar[:C.FALLBACK_TABLE_MAX_COLUMNS]
+        money = next((k for k in scalar if pack.entities[name].field_type(k) == C.FIELD_MONEY), None)
+        if money and money not in columns:  # so the answer can state a total
+            columns = [*columns[:-1], money]
+        table = _table(pack, data, {"endpoint": name, "columns": columns,
                                     "title": pack.entities[name].label})
         if table:
             return [table]
@@ -91,18 +97,28 @@ def _money_total(pack: Pack, table: Table) -> tuple[str, float] | None:
     return None
 
 
-def _grounded_text(pack: Pack, table: Table) -> tuple[str, str, list[dict]]:
-    title = table.title
-    headline = f"{table.total_count} {title}"
-    summary = f"There are {table.total_count} {title[:1].lower() + title[1:]}"
-    kpis = [{"label": f"Number of {title}", "value": f"{table.total_count:,}"}]
+def _sentence_case(title: str) -> str:
+    """'Sales Invoices This Month' -> 'sales invoices this month'; acronyms (VAT, AR) keep their capitals."""
+    return " ".join(word if word.isupper() and len(word) > 1 else word.lower() for word in title.split())
+
+
+def _grounded_text(pack: Pack, table: Table, summary: Any) -> tuple[str, str]:
+    """Headline and summary from the real rows. The presenter's own summary is kept only when it has no
+    figures in it, because its numbers are guesses; the table's are computed."""
+    count, noun = table.total_count, _sentence_case(table.title)
     money = _money_total(pack, table)
     if money:
         column, total = money
         amount = format_value(total, C.FMT_CURRENCY, symbol=pack.currency_symbol, decimals=pack.currency_decimals)
-        summary += f", totalling {amount} ({column})"
-        kpis.append({"label": column if column.lower().startswith("total") else f"Total {column}", "value": amount})
-    return headline, summary + ".", kpis
+        label = "total" if column.lower().startswith("total") else f"total {column.lower()}"
+        headline = f"{amount} across {count:,} {noun}"
+        grounded = f"{count:,} {noun}, {label} {amount}."
+    else:
+        headline = f"{count:,} {table.title}"
+        grounded = f"{noun[:1].upper()}{noun[1:]}: {count:,} in total."
+    if _real(summary) and not C.DIGIT_RE.search(str(summary)):
+        return headline, str(summary)
+    return headline, grounded
 
 
 def _charts(pack: Pack, presentation: dict, data: dict) -> list[dict]:
@@ -111,7 +127,8 @@ def _charts(pack: Pack, presentation: dict, data: dict) -> list[dict]:
         series = presenter_series(spec, data)
         if series:
             blocks.append({"type": "chart", "chart_type": spec.get("chart_type", C.CHART_BAR),
-                        "title": spec.get("title", ""), "data": [{"label": l, "value": v} for l, v in series]})
+                        "title": spec.get("title", ""), "value_format": _presenter_format(pack, spec),
+                        "data": [{"label": l, "value": v} for l, v in series]})
     if blocks:
         return blocks
     for name in pack.assistant.fallback_charts:
@@ -120,8 +137,18 @@ def _charts(pack: Pack, presentation: dict, data: dict) -> list[dict]:
         series = pack_series(chart, rows) if rows else []
         if len(series) >= C.MIN_CHAT_CHART_GROUPS:
             return [{"type": "chart", "chart_type": C.CHART_BAR, "title": chart.title,
-                    "data": [{"label": l, "value": v} for l, v in series]}]
+                    "value_format": chart.value_format, "data": [{"label": l, "value": v} for l, v in series]}]
     return []
+
+
+def _presenter_format(pack: Pack, spec: dict) -> str:
+    """Money axes and tooltips for sums and averages of a money field; plain numbers otherwise."""
+    entity = pack.entities.get(spec.get("endpoint") or "")
+    field = spec.get("value_field")
+    if entity and field and spec.get("agg", C.AGG_SUM) in (C.AGG_SUM, C.AGG_AVG) \
+            and entity.field_type(field) == C.FIELD_MONEY:
+        return C.FMT_CURRENCY_COMPACT
+    return C.FMT_NUMBER
 
 
 def _csv_url(table: Table) -> str:

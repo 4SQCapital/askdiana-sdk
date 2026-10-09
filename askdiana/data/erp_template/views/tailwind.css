@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Chat response view: transparent, flush with the host's own messages. color-scheme stays "normal" to match
+   the host iframe; a mismatch makes browsers paint an opaque backdrop behind the view. */
+html.inline-view,
+html.inline-view body,
+html.inline-view #root > .bg-background {
+  background: transparent;
+  color-scheme: normal;
+}
+html.inline-view #root > .bg-background {
+  padding: 0 0 0.25rem;
+}
+/* The host sizes the frame to the content, so the view itself never scrolls. A scrollbar here would also
+   narrow the page and push charts sideways, adding a second one. (autoResize sets overflow inline.) */
+html.inline-view,
+html.inline-view body {
+  overflow: hidden !important;
+}

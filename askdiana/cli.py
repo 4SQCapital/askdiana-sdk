@@ -511,6 +511,10 @@ def cmd_init(args):
     if os.path.exists(base):
         print(f"Error: directory '{name}' already exists.", file=sys.stderr)
         sys.exit(1)
+    
+    if args.erp:
+        _init_erp(base, name, slug, args.color)
+        return
 
     # Interactive prompts when --ui flag is omitted
     pm_choice = None
@@ -580,6 +584,63 @@ def cmd_init(args):
     else:
         print(f"  # Customize manifest.json's \"ui.settings_form.fields\" — the host")
         print(f"  #  renders the settings form for you, no frontend code needed")
+    print(f"  askdiana dev --port 5000")
+
+
+ERP_TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "data", "erp_template")
+ERP_DEFAULT_COLOR = "#3b82f6"
+ERP_DOTFILE_PREFIX = "dot."
+
+
+def _init_erp(base: str, name: str, slug: str, color: "str | None"):
+    """Create an ERP connector project on the askdiana.erp kit from data/erp_template."""
+    import glob
+    import shutil
+
+    color = color or ERP_DEFAULT_COLOR
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+        print(f"Error: --color must look like #13B5EA (got {color!r}).", file=sys.stderr)
+        sys.exit(1)
+    tarballs = sorted(glob.glob(os.path.join(os.path.dirname(__file__), "data", "askdiana-ui-*.tgz")))
+    if not tarballs:
+        print("Error: no askdiana-ui tarball bundled with the SDK.", file=sys.stderr)
+        sys.exit(1)
+    values = {
+        "__NAME__": name,
+        "__SLUG__": slug,
+        "__PACK__": slug.replace("-", "_"),
+        "__COMPONENT__": _to_component_name(name),
+        "__COLOR__": color,
+        "__TGZ__": os.path.basename(tarballs[-1]),
+    }
+
+    def fill(text: str) -> str:
+        for key, value in values.items():
+            text = text.replace(key, value)
+        return text
+
+    for src in sorted(glob.glob(os.path.join(ERP_TEMPLATE_DIR, "**", "*"), recursive=True)):
+        if os.path.isdir(src) or "__pycache__" in src:
+            continue
+        rel = os.path.relpath(src, ERP_TEMPLATE_DIR)
+        head, tail = os.path.split(rel)
+        if tail.startswith(ERP_DOTFILE_PREFIX):
+            tail = "." + tail[len(ERP_DOTFILE_PREFIX):]
+        dest = os.path.join(base, fill(os.path.join(head, tail)))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(src, encoding="utf-8") as f:
+            content = fill(f.read())
+        with open(dest, "w", encoding="utf-8", newline="\n") as f:
+            f.write(content)
+    shutil.copy2(tarballs[-1], os.path.join(base, values["__TGZ__"]))
+    _write(os.path.join(base, ".askdiana.json"), json.dumps({"platform_url": "https://app.askdiana.ai"}, indent=2) + "\n")
+
+    print(f"\nCreated ERP connector project: {name}/")
+    print(f"  cd {name}")
+    print(f"  pip install askdiana[app]")
+    print(f"  python -m unittest discover -s tests -t .     # the starter pack passes as-is")
+    print(f"  # Edit pack/{values['__PACK__']}.yaml and demo_data.py for your vendor")
+    print(f"  # Build the UI: pnpm install && pnpm build")
     print(f"  askdiana dev --port 5000")
 
 
@@ -1427,6 +1488,12 @@ def main():
         ),
     )
 
+    init_p.add_argument(
+        "--erp",
+        action="store_true",
+        help="Start an ERP / accounting connector on the askdiana.erp kit (pack, demo data, tests, dashboard views).",
+    )
+    init_p.add_argument("--color", help="Brand colour for charts with --erp, e.g. #13B5EA")
     dev_p = sub.add_parser("dev", help="Register with platform and start local dev server")
     dev_p.add_argument("--port", type=int, default=None, help="Port to run on (default: $PORT from .env, else 5000)")
 

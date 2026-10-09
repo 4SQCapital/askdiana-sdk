@@ -53,9 +53,16 @@ export const bridge = {
    * the overflow as its own internal scrollbar, and document.documentElement
    * never reports the real content height to the ResizeObserver below.
    * Temporarily lift it for as long as autoResize is active.
+   *
+   * The height is measured on #root, not on <html>: <html> is at least as
+   * tall as the iframe itself, so measuring it lets the frame grow but never
+   * shrink back (a chart that settles smaller left an empty gap). DOM changes
+   * are watched too, because data replacing a skeleton is not always a resize
+   * of the target, and reports are batched to one per frame.
    */
-  autoResize(target: HTMLElement = document.documentElement): () => void {
+  autoResize(target?: HTMLElement): () => void {
     const root = document.getElementById("root");
+    const measured = target ?? root ?? document.documentElement;
     const prevHtmlOverflow = document.documentElement.style.overflow;
     const prevBodyOverflow = document.body.style.overflow;
     const prevRootHeight = root?.style.height;
@@ -68,13 +75,29 @@ export const bridge = {
       root.style.overflowY = "visible";
     }
 
-    const report = () => bridge.resize(Math.ceil(target.scrollHeight));
-    const ro = new ResizeObserver(report);
-    ro.observe(target);
+    let last = 0;
+    let frame = 0;
+    const report = () => {
+      frame = 0;
+      const height = Math.ceil(measured.scrollHeight);
+      if (height !== last) {
+        last = height;
+        bridge.resize(height);
+      }
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(report);
+    };
+    const ro = new ResizeObserver(schedule);
+    ro.observe(measured);
+    const mo = new MutationObserver(schedule);
+    mo.observe(measured, { childList: true, subtree: true, attributes: true, characterData: true });
     report();
 
     return () => {
       ro.disconnect();
+      mo.disconnect();
+      if (frame) cancelAnimationFrame(frame);
       document.documentElement.style.overflow = prevHtmlOverflow;
       document.body.style.overflow = prevBodyOverflow;
       if (root) {
