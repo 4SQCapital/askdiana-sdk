@@ -387,6 +387,58 @@ class AskDianaClient:
         """
         return self._request("GET", f"/documents/{document_id}/content", install_id)
 
+    def search_documents(
+        self,
+        install_id: str,
+        query: str,
+        project_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        document_ids: Optional[List[str]] = None,
+        limit: int = 8,
+    ) -> Dict[str, Any]:
+        """Search the knowledge base with Ask DIANA's own hybrid search.
+
+        Only documents the installing user can read are searched. Narrow it to
+        one project or team (the user must be a member) and/or to a list of
+        documents.
+
+        Requires scope: ``documents:read`` (plus ``projects:read`` with
+        ``project_id``, ``teams:read`` with ``team_id``)
+
+        Args:
+            install_id: Install UUID from webhook payload.
+            query: What to look for, in plain words.
+            project_id: Only this project's documents.
+            team_id: Only this team's documents.
+            document_ids: Only these documents.
+            limit: Number of chunks to return, 1 to 20.
+
+        Returns::
+
+            {
+                "success": true,
+                "results": [
+                    {
+                        "document_id": "...",
+                        "file_name": "AML Procedures Manual.pdf",
+                        "content": "the matching chunk...",
+                        "section": "5.2 Structuring",
+                        "page": 4,
+                        "chunk_index": 7,
+                        "score": 0.82
+                    }
+                ]
+            }
+        """
+        body: Dict[str, Any] = {"query": query, "limit": limit}
+        if project_id:
+            body["project_id"] = project_id
+        if team_id:
+            body["team_id"] = team_id
+        if document_ids is not None:
+            body["document_ids"] = list(document_ids)
+        return self._request("POST", "/documents/search", install_id, json_body=body)
+
     def delete_document(
         self,
         install_id: str,

@@ -1456,8 +1456,9 @@ def cmd_deploy(args):
         print()
         print("Next steps:")
         print("  1. An admin will review your code for security")
-        print("  2. Once approved, the admin will deploy your extension")
-        print("  3. Your extension will be available in the marketplace")
+        print("  2. Set your environment variables in the Developer Portal")
+        print("  3. Once approved, press Start on the version to run it")
+        print("  4. When it is running, your extension shows in the marketplace")
     else:
         print(f"Upload failed ({resp.status_code}):", file=sys.stderr)
         try:

@@ -9,6 +9,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`bridge.openModal(request)`** (askdiana-ui) — asks Ask DIANA to open a dialog over the whole app with the extension's `?view=modal` (`init.params` = `request`). Works from the side panel and, on platforms with the matching change, from chat response views. Resolves `false` when the host doesn't confirm, so the view can fall back to its own dialog.
+
+### Fixed
+
+- **`bridge.autoResize()`** (askdiana-ui) sets `#root` to `display: flow-root` while active, so the first and last child's margins are inside the measured height. Before, a short text reply could get a frame a few lines too short.
+
+- **`applyTheme()`** (askdiana-ui) now also sets `.light` when the host is light. Before, `theme.css`'s `prefers-color-scheme: dark` fallback applied whenever `.light` was missing, so views inside a light Ask DIANA rendered with dark colours on computers set to dark mode.
+
+### Added
+
+- **`AskDianaClient.search_documents()`** — `POST /api/ext/documents/search`: the platform's hybrid search (dense + BM25) over the documents the installing user can read, optionally narrowed to one project or team and/or a list of document IDs. Returns matching chunks with `document_id`, `file_name`, `section`, `page` and `score`. Needs a platform with that route; older platforms answer 404 or 405.
+
 ---
 
 ## [0.2.0] — 2026-09-25

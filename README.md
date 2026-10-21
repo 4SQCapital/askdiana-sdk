@@ -458,6 +458,7 @@ See also the standalone connectors in `connectors/`:
 | `list_documents(install_id, limit, offset)` | `documents:read` | List user's documents |
 | `get_document(install_id, document_id)` | `documents:read` | Get a single document |
 | `get_document_content(install_id, document_id)` | `documents:read` | Get a document's extracted text |
+| `search_documents(install_id, query, project_id, team_id, document_ids, limit)` | `documents:read` (+ `projects:read` / `teams:read`) | Search readable documents with Ask DIANA's hybrid search; returns matching chunks |
 | `list_project_documents(install_id, project_id, limit, offset)` | `projects:read` + `documents:read` | Documents shared into a project (members only) |
 | `list_team_documents(install_id, team_id, limit, offset)` | `teams:read` + `documents:read` | Documents shared with a team (members only) |
 | `upload_document(install_id, file_content, file_name, source_type, source_reference)` | `documents:write` | Upload a document |
