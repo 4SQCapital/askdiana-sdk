@@ -39,6 +39,40 @@ export const bridge = {
   },
 
   /**
+   * Ask the host to open a dialog over the whole app showing this
+   * extension's `?view=modal`, with `request` as that view's `init.params`.
+   * Works from the side panel and from chat response views, which can't
+   * draw outside their own frame. Resolves true when the host confirms
+   * (`modal-opened`), false otherwise (an older host): show your own
+   * dialog then.
+   */
+  openModal(
+    request: { modal: string; size?: "md" | "xl" } & Record<string, unknown>,
+    timeoutMs = 600,
+  ): Promise<boolean> {
+    if (window.parent === window) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const finish = (ok: boolean) => {
+        window.removeEventListener("message", onMessage);
+        clearTimeout(timer);
+        resolve(ok);
+      };
+      const onMessage = (e: MessageEvent) => {
+        const msg = e.data;
+        if (
+          e.source === window.parent &&
+          msg?.source === "askdiana-host" &&
+          msg.type === "modal-opened"
+        )
+          finish(true);
+      };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      window.addEventListener("message", onMessage);
+      post("open-modal", request);
+    });
+  },
+
+  /**
    * Keep the host iframe sized to this document's content. Posts a `resize`
    * immediately and on every content-size change. Returns a disconnect fn.
    * Use in views the host embeds inline (e.g. the chat `response` view),
@@ -67,12 +101,16 @@ export const bridge = {
     const prevBodyOverflow = document.body.style.overflow;
     const prevRootHeight = root?.style.height;
     const prevRootOverflowY = root?.style.overflowY;
+    const prevRootDisplay = root?.style.display;
 
     document.documentElement.style.overflow = "visible";
     document.body.style.overflow = "visible";
     if (root) {
       root.style.height = "auto";
       root.style.overflowY = "visible";
+      // Contain the children's margins: otherwise the first and last child's
+      // margins collapse through #root, sit outside its box, and are missed.
+      root.style.display = "flow-root";
     }
 
     let last = 0;
@@ -103,6 +141,7 @@ export const bridge = {
       if (root) {
         root.style.height = prevRootHeight ?? "";
         root.style.overflowY = prevRootOverflowY ?? "";
+        root.style.display = prevRootDisplay ?? "";
       }
     };
   },
