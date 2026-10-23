@@ -409,6 +409,34 @@ and `ChatService.register_routes()`.
 - Your API key's scopes control what your extension *can* do
 - The install's `scopes_granted` controls what the user *consented* to
 
+### Who is using the extension (user and persona)
+
+Ask DIANA signs a short-lived context with your API key: the user, and the **persona** they work in (for example
+"AML Officer"). Views get it in `init.context`; chat gets it in the `/api/chat` body as `context`.
+
+In a view, call your API with `bridge.fetch` instead of `fetch`. It sends the context in `X-AskDiana-Context`:
+
+```ts
+const res = await bridge.fetch(`api/cases/${id}/close?install_id=${installId}`, { method: "POST" });
+const who = bridge.user(); // { name, persona: { name: "AML Officer" } }: for display only
+```
+
+In your backend, verify it and act for that user:
+
+```python
+ctx = app.request_context()            # None on an older platform; a forged one is a 401
+role = ctx.persona.name if ctx and ctx.persona else None
+docs = app.client.with_context(ctx).search_documents(ctx.install_id, "closure authority")
+```
+
+`with_context` makes the platform apply the user's persona: they only get documents that persona can see. Without
+it, the user's default persona applies. Trust a role only from a verified context, and only from an
+admin-managed persona (`ctx.persona.admin_managed`): any user may create their own persona with any name.
+
+| Header | Description |
+|--------|-------------|
+| `X-AskDiana-Context` | The signed user and persona (optional; send it back as received) |
+
 ## Webhook Events
 
 | Event | Trigger | Delivered to |

@@ -11,6 +11,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **User and persona context** — Ask DIANA now tells an extension who is using it and in which persona, signed with the extension's API key. Python: `verify_context()`, `request_context()` / `ExtensionApp.request_context()` (reads `X-AskDiana-Context` or the chat body's `context`; a forged one becomes a 401), and `AskDianaClient.with_context(ctx)` so document reads and search run under that user's persona. askdiana-ui: `bridge.fetch` (sends the header), `bridge.user()`, `bridge.onContext()`, and `InitData.context`. Needs a platform with `/api/extensions/<install_id>/context`; on older platforms there is no context and everything works as before.
+
 - **`bridge.openModal(request)`** (askdiana-ui) — asks Ask DIANA to open a dialog over the whole app with the extension's `?view=modal` (`init.params` = `request`). Works from the side panel and, on platforms with the matching change, from chat response views. Resolves `false` when the host doesn't confirm, so the view can fall back to its own dialog.
 
 ### Fixed

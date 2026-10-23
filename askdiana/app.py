@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Type
 from flask import Flask, g, has_request_context, jsonify, request
 
 from .client import AskDianaClient
+from .context import ContextError, RequestContext, request_context
 from .discovery import discover_blueprints, discover_models
 from .models import ExtModel, register_all_models
 from .webhooks import WebhookVerificationError, verify_bearer_token
@@ -174,6 +175,14 @@ class ExtensionApp:
         except ValueError as exc:
             raise WebhookVerificationError(str(exc)) from exc
 
+    def request_context(self, required: bool = False) -> Optional[RequestContext]:
+        """The verified user and persona of the current request, or None when the platform sent none.
+
+        See ``askdiana.context``. A context that can't be trusted (or a missing
+        one when ``required``) becomes a 401, like ``verify_request``.
+        """
+        return request_context(self._api_key, required=required)
+
     def _register_auth_error_handler(self) -> None:
         """Convert unhandled WebhookVerificationError to 401 (not 500).
 
@@ -185,6 +194,7 @@ class ExtensionApp:
         from flask import jsonify
 
         @self.flask.errorhandler(WebhookVerificationError)
+        @self.flask.errorhandler(ContextError)
         def _handle_auth_error(exc):  # noqa: WPS430
             return jsonify({
                 "ok": False,
