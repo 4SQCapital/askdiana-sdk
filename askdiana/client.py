@@ -22,6 +22,7 @@ Usage::
     config = client.get_config(install_id="...", key="google_api_key")
 """
 
+import copy
 import os
 import threading
 import time
@@ -66,6 +67,28 @@ class AskDianaClient:
         # TTL cache: install_id -> (expires_at, install_info_dict)
         self._install_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
         self._install_cache_lock = threading.Lock()
+        self._context: Optional[str] = None
+
+    def with_context(self, context) -> "AskDianaClient":
+        """A client that acts for the user in ``context``, under their persona.
+
+        ``context`` is a ``RequestContext`` (or the raw token, or None for this
+        client unchanged). The platform then reads and searches only the
+        documents that user's persona may see. Without it, the user's default
+        persona applies. The copy shares this client's connection and cache.
+        """
+        token = getattr(context, "token", context)
+        if not token:
+            return self
+        scoped = copy.copy(self)
+        scoped._context = str(token)
+        return scoped
+
+    def _headers(self, install_id: str) -> Dict[str, str]:
+        headers = {"X-Install-Id": install_id}
+        if self._context:
+            headers["X-AskDiana-Context"] = self._context
+        return headers
 
     def _invalidate_install_cache(self, install_id: str) -> None:
         with self._install_cache_lock:
@@ -81,7 +104,7 @@ class AskDianaClient:
     ) -> Dict[str, Any]:
         """Make an authenticated request to the Extension API."""
         url = f"{self.base_url}/api/ext{path}"
-        headers = {"X-Install-Id": install_id}
+        headers = self._headers(install_id)
         response = self._session.request(
             method,
             url,
@@ -311,7 +334,7 @@ class AskDianaClient:
             }
         """
         url = f"{self.base_url}/api/ext/documents/upload"
-        headers = {"X-Install-Id": install_id}
+        headers = self._headers(install_id)
         files = {"file": (file_name, file_content)}
         data: Dict[str, str] = {"source_type": source_type}
         if source_reference:

@@ -4,9 +4,45 @@ export interface InitData {
   theme?: { colorScheme?: "light" | "dark"; [k: string]: unknown };
   config?: Record<string, unknown>;
   params?: Record<string, unknown>;
+  /** Signed user + persona from the platform; absent on older hosts. See `bridge.fetch`. */
+  context?: string | null;
+}
+
+/** What the signed context says, decoded for display. Your backend verifies the token itself. */
+export interface ContextUser {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  persona: { id: string; name: string; adminManaged: boolean } | null;
+  expiresAt: number;
 }
 
 const HOST_ORIGIN = "*"; // tighten to your host origin in production
+const CONTEXT_HEADER = "X-AskDiana-Context";
+
+let context: string | null = null;
+const contextListeners = new Set<(user: ContextUser | null) => void>();
+
+function setContext(token: unknown) {
+  if (typeof token !== "string" || !token || token === context) return;
+  context = token;
+  const user = bridge.user();
+  contextListeners.forEach((fn) => fn(user));
+}
+
+function decodeClaims(token: string): Record<string, unknown> | null {
+  try {
+    const part = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      Array.from(atob(part.padEnd(part.length + ((4 - (part.length % 4)) % 4), "=")))
+        .map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0"))
+        .join(""),
+    );
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
 
 function post(type: string, payload?: unknown) {
   window.parent?.postMessage(
@@ -21,9 +57,57 @@ export const bridge = {
     window.addEventListener("message", (e) => {
       const msg = e.data;
       if (!msg || msg.source !== "askdiana-host") return;
-      if (msg.type === "init") onInit(msg.payload as InitData);
+      if (msg.type === "init") {
+        setContext((msg.payload as InitData)?.context);
+        onInit(msg.payload as InitData);
+      } else if (msg.type === "context") {
+        setContext((msg.payload as { context?: string } | undefined)?.context);
+      }
     });
     post("ready");
+  },
+
+  /** The signed context token, or null when the host sent none (an older platform, local preview). */
+  context(): string | null {
+    return context;
+  },
+
+  /** Who is using the view and in which persona, for display only; your backend must verify the token. */
+  user(): ContextUser | null {
+    const claims = context ? decodeClaims(context) : null;
+    if (!claims) return null;
+    const persona = claims.persona as { id?: string; name?: string; kind?: string } | null | undefined;
+    return {
+      userId: String(claims.sub ?? ""),
+      name: (claims.name as string) ?? null,
+      email: (claims.email as string) ?? null,
+      persona: persona?.id
+        ? {
+            id: String(persona.id),
+            name: String(persona.name ?? ""),
+            adminManaged: persona.kind === "admin_managed",
+          }
+        : null,
+      expiresAt: Number(claims.exp ?? 0),
+    };
+  },
+
+  /** Called when the context arrives, is renewed, or the user switches persona. Returns an unsubscribe fn. */
+  onContext(fn: (user: ContextUser | null) => void): () => void {
+    contextListeners.add(fn);
+    return () => contextListeners.delete(fn);
+  },
+
+  /**
+   * `fetch` that sends the signed context in `X-AskDiana-Context`, so your backend knows
+   * the user and persona (`request_context()` in the Python SDK). Use it for calls to your
+   * extension's own API. Without a context it is plain `fetch`.
+   */
+  fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+    if (!context) return fetch(input, init);
+    const headers = new Headers(init.headers);
+    headers.set(CONTEXT_HEADER, context);
+    return fetch(input, { ...init, headers });
   },
   save(values: Record<string, unknown>) {
     post("save", values);
