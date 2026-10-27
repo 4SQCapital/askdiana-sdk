@@ -13,9 +13,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 - **User and persona context** — Ask DIANA now tells an extension who is using it and in which persona, signed with the extension's API key. Python: `verify_context()`, `request_context()` / `ExtensionApp.request_context()` (reads `X-AskDiana-Context` or the chat body's `context`; a forged one becomes a 401), and `AskDianaClient.with_context(ctx)` so document reads and search run under that user's persona. askdiana-ui: `bridge.fetch` (sends the header), `bridge.user()`, `bridge.onContext()`, and `InitData.context`. Needs a platform with `/api/extensions/<install_id>/context`; on older platforms there is no context and everything works as before.
 
+- **`bridge.sendToChat(text)`** (askdiana-ui) — from the side panel, sends a prompt into the user's AskDiana chat in the extension's chat mode, as if they typed it (for example "Provide full details and analysis of case A-1057" when a row is opened). Resolves `"sent"`, `"busy"`, `"other_chat"` (a conversation in another mode is open), `"unavailable"`, `"no_chat"`, `"empty"`, or `"unsupported"` on a platform without the matching change.
+
 - **`bridge.openModal(request)`** (askdiana-ui) — asks Ask DIANA to open a dialog over the whole app with the extension's `?view=modal` (`init.params` = `request`). Works from the side panel and, on platforms with the matching change, from chat response views. Resolves `false` when the host doesn't confirm, so the view can fall back to its own dialog.
 
 ### Fixed
+
+- **`askdiana dev` picks a free port** when the port from `PORT` (or 5000) is already taken (for example by another extension in dev), registers that port, and says so. The relay finds the extension by its API key, so several extensions can run in dev at once. An explicit `--port` or a tunnel `webhook_url` is left as is.
 
 - **`bridge.autoResize()`** (askdiana-ui) sets `#root` to `display: flow-root` while active, so the first and last child's margins are inside the measured height. Before, a short text reply could get a frame a few lines too short.
 

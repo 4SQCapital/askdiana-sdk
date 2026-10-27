@@ -280,4 +280,44 @@ export const bridge = {
       window.addEventListener("message", handler);
     });
   },
+
+  /**
+   * Send a prompt into the user's AskDiana chat, in this extension's chat
+   * mode, as if they typed it. Only from the panel, and only on a user action.
+   * Resolves "sent", "busy", "other_chat" (a conversation in another mode is
+   * open), "unavailable" (no chat mode), "no_chat", "empty", or "unsupported"
+   * on an older host.
+   */
+  sendToChat(text: string): Promise<SendToChatResult> {
+    const id = Math.random().toString(36).slice(2);
+    post("send-chat-message", { id, text });
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        window.removeEventListener("message", handler);
+        resolve("unsupported");
+      }, 3000);
+      function handler(e: MessageEvent) {
+        const msg = e.data;
+        if (
+          msg?.source === "askdiana-host" &&
+          msg.type === "send-chat-message-response" &&
+          msg.payload?.id === id
+        ) {
+          clearTimeout(timer);
+          window.removeEventListener("message", handler);
+          resolve(msg.payload.result ?? "unsupported");
+        }
+      }
+      window.addEventListener("message", handler);
+    });
+  },
 };
+
+export type SendToChatResult =
+  | "sent"
+  | "busy"
+  | "other_chat"
+  | "unavailable"
+  | "no_chat"
+  | "empty"
+  | "unsupported";

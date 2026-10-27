@@ -772,6 +772,18 @@ def _start_relay(platform_url: str, api_key: str, port: int, verify_ssl: bool):
     t.start()
 
 
+def _port_in_use(port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.3)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _next_free_port(start: int, tries: int = 50) -> "int | None":
+    return next((p for p in range(start + 1, start + 1 + tries) if not _port_in_use(p)), None)
+
+
 def cmd_dev(args):
     """Start the extension in dev mode: register with platform + run Flask.
 
@@ -792,6 +804,15 @@ def cmd_dev(args):
 
     # Load project config (only needs platform_url)
     config = _load_project_config()
+
+    # Another extension already on this port: take the next free one. The relay
+    # finds this extension by its API key, so the port only matters locally.
+    # Not with --port or a tunnel (webhook_url), which point at a fixed port.
+    if args.port is None and not config.get("webhook_url") and _port_in_use(port):
+        free = _next_free_port(port)
+        if free:
+            print(f"Port {port} is in use (another extension?), using {free} instead.")
+            port = free
     platform_url = config.get("platform_url", "")
 
     api_key = os.environ.get("ASKDIANA_API_KEY", "")
