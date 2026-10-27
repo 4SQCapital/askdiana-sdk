@@ -56,4 +56,4 @@ export { useChartColors } from "./lib/chart-theme";
 export type { ChartColors } from "./lib/chart-theme";
 export { applyTheme } from "./lib/apply-theme";
 export { bridge } from "./bridge";
-export type { InitData, ContextUser } from "./bridge";
+export type { InitData, ContextUser, SendToChatResult } from "./bridge";
