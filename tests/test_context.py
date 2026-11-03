@@ -41,6 +41,17 @@ def test_a_users_own_persona_is_not_admin_managed():
     assert not verify_context(_token(persona=persona), install_id="inst-1", api_key=KEY).persona.admin_managed
 
 
+@pytest.mark.parametrize("role, admin", [("admin", True), ("manager", True), ("user", False), (None, False)])
+def test_the_askdiana_role_says_who_is_an_admin(role, admin):
+    ctx = verify_context(_token(role=role), install_id="inst-1", api_key=KEY)
+    assert (ctx.role, ctx.is_admin) == (role, admin)
+
+
+def test_an_older_platform_token_has_no_role():
+    ctx = verify_context(_token(), install_id="inst-1", api_key=KEY)
+    assert ctx.role is None and not ctx.is_admin
+
+
 def test_the_account_view_has_no_persona():
     assert verify_context(_token(persona=None), install_id="inst-1", api_key=KEY).persona is None
 
