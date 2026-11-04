@@ -37,6 +37,7 @@ from typing import Any, Dict, Optional
 HEADER = "X-AskDiana-Context"
 ISSUER = "askdiana"
 LEEWAY_SECONDS = 30
+ADMIN_ROLES = ("admin", "manager")
 
 _G_KEY = "askdiana_context"
 
@@ -68,6 +69,11 @@ class RequestContext:
     email: Optional[str]
     persona: Optional[Persona]
     expires_at: int
+    role: Optional[str] = None
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role in ADMIN_ROLES
 
 
 def _b64decode(part: str) -> bytes:
@@ -129,6 +135,7 @@ def verify_context(
         if persona
         else None,
         expires_at=int(expires_at),
+        role=claims.get("role"),
     )
 
 
