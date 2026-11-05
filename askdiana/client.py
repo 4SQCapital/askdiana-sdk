@@ -37,6 +37,12 @@ from typing import Optional, Dict, Any, List
 _INSTALL_INFO_TTL = int(os.environ.get("ASKDIANA_SDK_CACHE_TTL", "30"))
 
 
+def _scope(scope: str) -> Optional[Dict[str, str]]:
+    if scope not in ("install", "tenant"):
+        raise ValueError("scope must be 'install' or 'tenant'")
+    return {"scope": scope} if scope == "tenant" else None
+
+
 class AskDianaClient:
     """Client for the Ask DIANA Extension API."""
 
@@ -620,6 +626,7 @@ class AskDianaClient:
         install_id: str,
         namespace: str,
         key: str,
+        scope: str = "install",
     ) -> Dict[str, Any]:
         """Get a stored value by namespace and key.
 
@@ -636,7 +643,7 @@ class AskDianaClient:
         Raises:
             requests.HTTPError: 404 if key not found.
         """
-        return self._request("GET", f"/data/{namespace}/{key}", install_id)
+        return self._request("GET", f"/data/{namespace}/{key}", install_id, params=_scope(scope))
 
     def set_data(
         self,
@@ -644,6 +651,8 @@ class AskDianaClient:
         namespace: str,
         key: str,
         value: Any,
+        scope: str = "install",
+        if_match: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Store a value under namespace/key (creates or updates).
 
@@ -654,6 +663,11 @@ class AskDianaClient:
             namespace: Data namespace (e.g. ``"settings"``).
             key: The key to store under.
             value: Any JSON-serializable value.
+            scope: ``"install"`` (default) or ``"tenant"`` to share the
+                value with every install of this extension in the tenant.
+            if_match: Save only if the stored value still has this
+                ``etag`` (from :meth:`get_data`); ``""`` means the key
+                must not exist yet. A mismatch raises ``HTTPError`` 412.
 
         Returns::
 
@@ -661,7 +675,8 @@ class AskDianaClient:
         """
         return self._request(
             "PUT", f"/data/{namespace}/{key}", install_id,
-            json_body={"value": value},
+            params=_scope(scope),
+            json_body={"value": value} if if_match is None else {"value": value, "if_match": if_match},
         )
 
     def delete_data(
@@ -669,6 +684,7 @@ class AskDianaClient:
         install_id: str,
         namespace: str,
         key: str,
+        scope: str = "install",
     ) -> Dict[str, Any]:
         """Delete a stored value by namespace and key.
 
@@ -681,12 +697,13 @@ class AskDianaClient:
         Raises:
             requests.HTTPError: 404 if key not found.
         """
-        return self._request("DELETE", f"/data/{namespace}/{key}", install_id)
+        return self._request("DELETE", f"/data/{namespace}/{key}", install_id, params=_scope(scope))
 
     def list_data(
         self,
         install_id: str,
         namespace: str,
+        scope: str = "install",
     ) -> Dict[str, Any]:
         """List all keys and values in a namespace.
 
@@ -702,7 +719,7 @@ class AskDianaClient:
                 ]
             }
         """
-        return self._request("GET", f"/data/{namespace}", install_id)
+        return self._request("GET", f"/data/{namespace}", install_id, params=_scope(scope))
 
     # ------------------------------------------------------------------ #
     # Extension Schema Management                                          #
